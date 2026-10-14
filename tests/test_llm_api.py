@@ -234,6 +234,7 @@ async def test_get_directions_tool_never_returns_geometry(
     assert result.data["duration"] == 600
     assert "geometry" not in result.data
     assert "steps" not in result.data
+    assert "alternatives" not in result.data
 
 
 async def test_get_directions_tool_rejects_too_many_waypoints(hass: HomeAssistant) -> None:

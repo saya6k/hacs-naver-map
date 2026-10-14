@@ -87,6 +87,10 @@
         "include_steps": {
           "name": "경로 세부 단계 포함",
           "description": "`steps`를 함께 반환합니다: 회전 안내, 대중교통은 도보·승차 구간별 노선·정류장·시각. 가져오지 못하면 null입니다."
+        },
+        "include_alternatives": {
+          "name": "다른 경로 포함",
+          "description": "대중교통 전용: 네이버가 제안하는 모든 경로를 `alternatives`로 함께 반환합니다. 각 경로에 라벨(best·minimum_duration·minimum_transfer·minimum_walking), 교통수단, 도보 시간, 요금이 포함됩니다. 다른 이동수단은 null입니다."
         }
       }
     }

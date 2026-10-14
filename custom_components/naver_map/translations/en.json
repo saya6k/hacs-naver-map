@@ -87,6 +87,10 @@
         "include_steps": {
           "name": "Include route steps",
           "description": "Also return `steps`: turn-by-turn directions, or for public transit each walk and ride with its lines, stations, and times; null when unavailable."
+        },
+        "include_alternatives": {
+          "name": "Include alternative routes",
+          "description": "Public transit only: also return every route Naver suggests as `alternatives`, each with its labels (best, minimum_duration, minimum_transfer, minimum_walking), vehicle types, walking time, and fare. Null for other modes."
         }
       }
     }

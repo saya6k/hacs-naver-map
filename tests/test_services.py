@@ -440,3 +440,85 @@ async def test_get_directions_steps_only_when_requested(
 
     assert "steps" not in default
     assert with_steps["steps"] == [{"instruction": "우회전", "distance": 300, "duration": 60}]
+
+
+async def test_get_directions_transit_alternatives_only_when_requested(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """include_alternatives lists every transit route; the top level stays the first one."""
+    aioclient_mock.get(
+        TRANSIT_ROUTE_URL,
+        json={
+            "paths": [
+                {
+                    "duration": 36,
+                    "distance": 10000,
+                    "fare": 1650,
+                    "transferCount": 2,
+                    "walkingDuration": 12,
+                    "vehicleTypes": ["SUBWAY"],
+                    "pathLabels": [{"labelCode": "BEST"}],
+                    "legs": [{"steps": [{"points": [{"x": 127.0, "y": 37.5}]}]}],
+                },
+                {
+                    "duration": 50,
+                    "distance": 9000,
+                    "fare": 1500,
+                    "transferCount": 0,
+                    "vehicleTypes": ["BUS"],
+                    "pathLabels": [{"labelCode": "MINIMUM_TRANSFER"}],
+                },
+            ]
+        },
+    )
+    data = {
+        "origin": {"latitude": 37.5665, "longitude": 126.978},
+        "destination": {"latitude": 37.3945, "longitude": 127.1112},
+        "mode": "transit",
+    }
+
+    default = await _call(hass, "get_directions", data)
+    response = await _call(
+        hass, "get_directions", {**data, "include_alternatives": True, "include_geometry": True}
+    )
+
+    assert "alternatives" not in default
+    assert response["duration"] == 2160
+    first, second = response["alternatives"]
+    assert first["labels"] == ["best"]
+    assert first["geometry"] == [[37.5, 127.0]]
+    assert first["walking_duration"] == 720
+    assert second == {
+        "duration": 3000,
+        "distance": 9000,
+        "transfers": 0,
+        "fare": 1500,
+        "walking_duration": None,
+        "departure_time": None,
+        "arrival_time": None,
+        "vehicle_types": ["bus"],
+        "labels": ["minimum_transfer"],
+        "geometry": None,
+    }
+
+
+async def test_get_directions_alternatives_null_for_other_modes(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Only transit has alternative routes; other modes report null."""
+    aioclient_mock.get(
+        WALK_ROUTE_URL, json={"routes": [{"summary": {"duration": 1047, "distance": 876}}]}
+    )
+
+    response = await _call(
+        hass,
+        "get_directions",
+        {
+            "origin": {"latitude": 37.4979, "longitude": 127.0276},
+            "destination": {"latitude": 37.5006, "longitude": 127.0364},
+            "mode": "walk",
+            "include_alternatives": True,
+        },
+    )
+
+    assert response["alternatives"] is None

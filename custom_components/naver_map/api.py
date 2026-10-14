@@ -117,6 +117,12 @@ class TransitResult:
     fare: int
     path: RoutePath = None
     steps: RouteSteps = None
+    walking_duration: int | None = None
+    departure_time: str | None = None
+    arrival_time: str | None = None
+    vehicle_types: tuple[str, ...] = ()
+    # Naver's picks among the routes, e.g. best, minimum_duration, minimum_transfer.
+    labels: tuple[str, ...] = ()
 
 
 def _read_optional[T](
@@ -187,6 +193,24 @@ def _bike_steps(data: Any) -> list[dict[str, Any]]:
 
 def _kst(value: str) -> str:
     return datetime.fromisoformat(value).replace(tzinfo=_KST).isoformat()
+
+
+def _transit_result(path: Any) -> TransitResult:
+    """One pubtrans path (durations in minutes, naive KST times)."""
+    walking = path.get("walkingDuration")
+    return TransitResult(
+        duration=int(path["duration"]) * 60,
+        distance=int(path["distance"]),
+        transfers=int(path["transferCount"]),
+        fare=int(path["fare"]),
+        path=_read_path("transit", _step_points, path),
+        steps=_read_steps("transit", _transit_steps, path),
+        walking_duration=int(walking) * 60 if walking is not None else None,
+        departure_time=_kst(path["departureTime"]) if path.get("departureTime") else None,
+        arrival_time=_kst(path["arrivalTime"]) if path.get("arrivalTime") else None,
+        vehicle_types=tuple(kind.lower() for kind in path.get("vehicleTypes") or ()),
+        labels=tuple(label["labelCode"].lower() for label in path.get("pathLabels") or ()),
+    )
 
 
 def _transit_steps(data: Any) -> list[dict[str, Any]]:
@@ -327,26 +351,30 @@ class NaverMapRouteApi:
         resp.raise_for_status()
         return await resp.json(content_type=None)
 
-    async def async_get_transit_route(
+    async def async_get_transit_routes(
         self, origin: ResolvedPoint, destination: ResolvedPoint
-    ) -> TransitResult | None:
-        """Query the transit endpoint for the top-ranked route, or None on failure."""
+    ) -> list[TransitResult]:
+        """Query the transit endpoint for every route in Naver's order (best first).
+
+        Unreadable routes are skipped; an empty list means the lookup failed.
+        """
         try:
             data = await self._async_get(
                 TRANSIT_ROUTE_URL, {"start": _coord(origin), "goal": _coord(destination)}
             )
-            path = data["paths"][0]
-            return TransitResult(
-                duration=int(path["duration"]) * 60,  # minutes
-                distance=int(path["distance"]),
-                transfers=int(path["transferCount"]),
-                fare=int(path["fare"]),
-                path=_read_path("transit", _step_points, path),
-                steps=_read_steps("transit", _transit_steps, path),
-            )
+            paths = list(data["paths"])
         except _ROUTE_ERRORS as err:
             _LOGGER.warning("Naver transit route lookup failed, ETA unavailable: %s", err)
-            return None
+            return []
+        routes = []
+        for path in paths:
+            try:
+                routes.append(_transit_result(path))
+            except _ROUTE_ERRORS as err:
+                _LOGGER.warning("Naver transit route unreadable, skipped: %s", err)
+        if not routes:
+            _LOGGER.warning("Naver transit route lookup found no route, ETA unavailable")
+        return routes
 
     async def async_get_walk_route(self, points: list[ResolvedPoint]) -> RouteResult | None:
         """Query the walk endpoint through all points in order, or None on failure."""

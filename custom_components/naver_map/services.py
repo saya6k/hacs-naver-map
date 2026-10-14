@@ -61,6 +61,7 @@ ATTR_WAYPOINTS = "waypoints"
 ATTR_MODE = "mode"
 ATTR_INCLUDE_GEOMETRY = "include_geometry"
 ATTR_INCLUDE_STEPS = "include_steps"
+ATTR_INCLUDE_ALTERNATIVES = "include_alternatives"
 
 NEARBY_CENTER_ROLE = "중심 지점"
 
@@ -91,6 +92,7 @@ GET_DIRECTIONS_SCHEMA = vol.Schema(
         vol.Optional(ATTR_MODE, default=MODE_CAR): vol.In(DIRECTIONS_MODES),
         vol.Optional(ATTR_INCLUDE_GEOMETRY, default=False): cv.boolean,
         vol.Optional(ATTR_INCLUDE_STEPS, default=False): cv.boolean,
+        vol.Optional(ATTR_INCLUDE_ALTERNATIVES, default=False): cv.boolean,
     }
 )
 
@@ -187,8 +189,10 @@ async def async_get_directions(
     applied). Shared by the get_directions service and the get_directions
     LLM tool. ``ATTR_INCLUDE_GEOMETRY`` adds the route line as ``geometry``
     ([lat, lng] lists) and ``ATTR_INCLUDE_STEPS`` the turn-by-turn or per-ride
-    ``steps`` (each null when unavailable); the LLM tool sets neither, since
-    both would flood the model context.
+    ``steps`` (each null when unavailable). ``ATTR_INCLUDE_ALTERNATIVES`` lists
+    every transit route Naver returned (the first is the top-level one) as
+    ``alternatives``, null for other modes. The LLM tool sets none of them,
+    since they would flood the model context.
     """
     waypoints = data[ATTR_WAYPOINTS]
     mode = data[ATTR_MODE]
@@ -212,10 +216,12 @@ async def async_get_directions(
     )
     points.append(resolve_point(hass, role="도착지", value=data.get(ATTR_DESTINATION)))
     route: RouteResult | TransitResult | None = None
+    transit_routes: list[TransitResult] = []
     if mode == MODE_CAR:
         route = await clients.maps.async_get_driving_route(points[0], points[-1], points[1:-1])
     elif mode == MODE_TRANSIT:
-        route = await clients.route.async_get_transit_route(points[0], points[-1])
+        transit_routes = await clients.route.async_get_transit_routes(points[0], points[-1])
+        route = transit_routes[0] if transit_routes else None
     elif mode == MODE_WALK:
         route = await clients.route.async_get_walk_route(points)
     elif mode == MODE_BICYCLE and not waypoints:
@@ -245,13 +251,44 @@ async def async_get_directions(
     if isinstance(route, TransitResult):
         response["transfers"] = route.transfers
         response["fare"] = route.fare
+    response.update(_route_extras(route, data))
+    if data.get(ATTR_INCLUDE_ALTERNATIVES):
+        response["alternatives"] = (
+            [_transit_alternative(transit, data) for transit in transit_routes]
+            if transit_routes
+            else None
+        )
+    return response
+
+
+def _route_extras(
+    route: RouteResult | TransitResult | None, data: Mapping[str, Any]
+) -> dict[str, Any]:
+    """The requested optional parts of a route: `geometry` and/or `steps`."""
+    extras: dict[str, Any] = {}
     if data.get(ATTR_INCLUDE_GEOMETRY):
-        response["geometry"] = (
+        extras["geometry"] = (
             [list(point) for point in route.path] if route and route.path else None
         )
     if data.get(ATTR_INCLUDE_STEPS):
-        response["steps"] = route.steps if route else None
-    return response
+        extras["steps"] = route.steps if route else None
+    return extras
+
+
+def _transit_alternative(route: TransitResult, data: Mapping[str, Any]) -> dict[str, Any]:
+    """One transit route of the `alternatives` list."""
+    return {
+        "duration": route.duration,
+        "distance": route.distance,
+        "transfers": route.transfers,
+        "fare": route.fare,
+        "walking_duration": route.walking_duration,
+        "departure_time": route.departure_time,
+        "arrival_time": route.arrival_time,
+        "vehicle_types": list(route.vehicle_types),
+        "labels": list(route.labels),
+        **_route_extras(route, data),
+    }
 
 
 async def _async_handle_search_place(clients: NaverClients, call: ServiceCall) -> ServiceResponse:

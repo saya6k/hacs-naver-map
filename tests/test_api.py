@@ -170,9 +170,9 @@ async def test_transit_route_parses_top_path(
         },
     )
 
-    route = await _route_api(hass).async_get_transit_route(ORIGIN, DESTINATION)
+    routes = await _route_api(hass).async_get_transit_routes(ORIGIN, DESTINATION)
 
-    assert route == TransitResult(duration=3000, distance=24700, transfers=1, fare=3200)
+    assert routes == [TransitResult(duration=3000, distance=24700, transfers=1, fare=3200)]
     _method, url, _data, headers = aioclient_mock.mock_calls[0]
     assert url.query == {"start": "127.0276,37.4979", "goal": "127.0364,37.5006"}
     assert headers["Referer"] == "https://map.naver.com/"
@@ -181,10 +181,10 @@ async def test_transit_route_parses_top_path(
 async def test_transit_route_without_paths_degrades_to_none(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """A transit response with no paths returns None."""
+    """A transit response with no paths returns no routes."""
     aioclient_mock.get(TRANSIT_ROUTE_URL, json={"status": "NO_RESULT", "paths": []})
 
-    assert await _route_api(hass).async_get_transit_route(ORIGIN, DESTINATION) is None
+    assert await _route_api(hass).async_get_transit_routes(ORIGIN, DESTINATION) == []
 
 
 async def test_walk_route_passes_all_points_in_order(
@@ -296,9 +296,8 @@ async def test_transit_route_parses_step_points(
         },
     )
 
-    route = await _route_api(hass).async_get_transit_route(ORIGIN, DESTINATION)
+    [route] = await _route_api(hass).async_get_transit_routes(ORIGIN, DESTINATION)
 
-    assert route is not None
     assert route.path == [(37.4979, 127.0276), (37.499, 127.03), (37.5006, 127.0364)]
 
 
@@ -459,9 +458,8 @@ async def test_transit_route_parses_ride_and_walk_steps(
         },
     )
 
-    route = await _route_api(hass).async_get_transit_route(ORIGIN, DESTINATION)
+    [route] = await _route_api(hass).async_get_transit_routes(ORIGIN, DESTINATION)
 
-    assert route is not None
     assert route.steps == [
         {
             "type": "walk",
@@ -561,4 +559,66 @@ async def test_bike_route_parses_guide_steps_without_markup(
     assert route is not None
     assert route.steps == [
         {"instruction": "테헤란로를 따라 321m 이동", "distance": 321, "duration": 72}
+    ]
+
+
+async def test_transit_routes_keep_every_path_with_labels(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Every transit path is returned in order with its labels, vehicle types, and times."""
+    aioclient_mock.get(
+        TRANSIT_ROUTE_URL,
+        json={
+            "paths": [
+                {
+                    "duration": 36,
+                    "distance": 10000,
+                    "fare": 1650,
+                    "transferCount": 2,
+                    "walkingDuration": 12,
+                    "departureTime": "2026-10-14T16:04:30",
+                    "arrivalTime": "2026-10-14T16:40:42",
+                    "vehicleTypes": ["SUBWAY"],
+                    "pathLabels": [
+                        {"labelCode": "BEST", "labelText": "최적"},
+                        {"labelCode": "MINIMUM_DURATION", "labelText": "최소시간"},
+                    ],
+                },
+                {"duration": 50, "fare": 1500},  # unreadable: skipped
+                {
+                    "duration": 54,
+                    "distance": 11000,
+                    "fare": 1600,
+                    "transferCount": 2,
+                    "walkingDuration": 8,
+                    "vehicleTypes": ["BUS", "SUBWAY"],
+                    "pathLabels": [{"labelCode": "MINIMUM_WALKING", "labelText": "최소도보"}],
+                },
+            ]
+        },
+    )
+
+    routes = await _route_api(hass).async_get_transit_routes(ORIGIN, DESTINATION)
+
+    assert routes == [
+        TransitResult(
+            duration=2160,
+            distance=10000,
+            transfers=2,
+            fare=1650,
+            walking_duration=720,
+            departure_time="2026-10-14T16:04:30+09:00",
+            arrival_time="2026-10-14T16:40:42+09:00",
+            vehicle_types=("subway",),
+            labels=("best", "minimum_duration"),
+        ),
+        TransitResult(
+            duration=3240,
+            distance=11000,
+            transfers=2,
+            fare=1600,
+            walking_duration=480,
+            vehicle_types=("bus", "subway"),
+            labels=("minimum_walking",),
+        ),
     ]
