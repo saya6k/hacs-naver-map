@@ -48,6 +48,18 @@ async def setup_integration(
     return entry
 
 
+
+def _car(duration_ms: int, distance: int, toll: int, fuel: int) -> dict:
+    """One Directions 5 route, as it appears under an option key."""
+    return {
+        "summary": {
+            "duration": duration_ms,
+            "distance": distance,
+            "tollFare": toll,
+            "fuelPrice": fuel,
+        }
+    }
+
 async def _call(hass: HomeAssistant, service: str, data: dict) -> dict:
     return await hass.services.async_call(
         DOMAIN, service, data, blocking=True, return_response=True
@@ -756,3 +768,43 @@ async def test_get_transit_arrivals_unreadable_is_api_error(
         await _call(hass, "get_transit_arrivals", {"type": "subway", "stop_id": "222"})
 
     assert err.value.translation_key == "api_error"
+
+
+async def test_get_directions_car_alternatives(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """include_alternatives lists the car routes too; the top level stays the best one."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [_car(900000, 12000, 1500, 1800)],
+                "trafast": [_car(840000, 13000, 2400, 1900)],
+            },
+        },
+    )
+    before = dt_util.now()
+
+    response = await _call(
+        hass,
+        "get_directions",
+        {
+            "origin": {"latitude": 37.5665, "longitude": 126.978},
+            "destination": {"latitude": 37.4, "longitude": 127.1},
+            "include_alternatives": True,
+        },
+    )
+
+    assert response["duration"] == 900
+    best, fastest = response["alternatives"]
+    keys = ("duration", "distance", "labels", "toll_fare", "fuel_price")
+    assert {key: best[key] for key in keys} == {
+        "duration": 900,
+        "distance": 12000,
+        "labels": ["best"],
+        "toll_fare": 1500,
+        "fuel_price": 1800,
+    }
+    assert fastest["labels"] == ["minimum_duration"]
+    assert dt_util.parse_datetime(fastest["arrival_time"]) >= before + timedelta(seconds=840)

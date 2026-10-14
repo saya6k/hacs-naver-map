@@ -325,8 +325,9 @@ async def async_get_directions(
     LLM tool. ``ATTR_INCLUDE_GEOMETRY`` adds the route line as ``geometry``
     ([lat, lng] lists) and ``ATTR_INCLUDE_STEPS`` the turn-by-turn or per-ride
     ``steps`` (each null when unavailable). ``ATTR_INCLUDE_ALTERNATIVES`` lists
-    every transit route Naver returned (the first is the top-level one) as
-    ``alternatives``, null for other modes. The LLM tool sets none of them,
+    every route the lookup offered (car: best, fastest, and toll-free; transit:
+    all paths; the first is the top-level one) as ``alternatives``, null for
+    walk and bicycle. The LLM tool sets none of them,
     since they would flood the model context.
     """
     waypoints = data[ATTR_WAYPOINTS]
@@ -351,12 +352,17 @@ async def async_get_directions(
     )
     points.append(resolve_point(hass, role="도착지", value=data.get(ATTR_DESTINATION)))
     route: RouteResult | TransitResult | None = None
-    transit_routes: list[TransitResult] = []
+    # Every route the lookup offered (car: best/fastest/toll-free, transit: all
+    # paths); the first is the top-level one.
+    alternatives: list[RouteResult] | list[TransitResult] = []
     if mode == MODE_CAR:
-        route = await clients.maps.async_get_driving_route(points[0], points[-1], points[1:-1])
+        alternatives = await clients.maps.async_get_driving_routes(
+            points[0], points[-1], points[1:-1]
+        )
+        route = alternatives[0] if alternatives else None
     elif mode == MODE_TRANSIT:
-        transit_routes = await clients.route.async_get_transit_routes(points[0], points[-1])
-        route = transit_routes[0] if transit_routes else None
+        alternatives = await clients.route.async_get_transit_routes(points[0], points[-1])
+        route = alternatives[0] if alternatives else None
     elif mode == MODE_WALK:
         route = await clients.route.async_get_walk_route(points)
     elif mode == MODE_BICYCLE and not waypoints:
@@ -389,8 +395,8 @@ async def async_get_directions(
     response.update(_route_extras(route, data))
     if data.get(ATTR_INCLUDE_ALTERNATIVES):
         response["alternatives"] = (
-            [_transit_alternative(transit, data) for transit in transit_routes]
-            if transit_routes
+            [_alternative(alternative, data) for alternative in alternatives]
+            if alternatives
             else None
         )
     return response
@@ -410,8 +416,18 @@ def _route_extras(
     return extras
 
 
-def _transit_alternative(route: TransitResult, data: Mapping[str, Any]) -> dict[str, Any]:
-    """One transit route of the `alternatives` list."""
+def _alternative(route: RouteResult | TransitResult, data: Mapping[str, Any]) -> dict[str, Any]:
+    """One route of the `alternatives` list (car or transit)."""
+    if isinstance(route, RouteResult):
+        return {
+            "duration": route.duration,
+            "distance": route.distance,
+            "arrival_time": (dt_util.now() + timedelta(seconds=route.duration)).isoformat(),
+            "toll_fare": route.toll_fare,
+            "fuel_price": route.fuel_price,
+            "labels": list(route.labels),
+            **_route_extras(route, data),
+        }
     return {
         "duration": route.duration,
         "distance": route.distance,

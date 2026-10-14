@@ -52,6 +52,18 @@ def _route_api(hass: HomeAssistant) -> NaverMapRouteApi:
     return NaverMapRouteApi(async_get_clientsession(hass))
 
 
+
+def _car(duration_ms: int, distance: int, toll: int, fuel: int) -> dict:
+    """One Directions 5 route, as it appears under an option key."""
+    return {
+        "summary": {
+            "duration": duration_ms,
+            "distance": distance,
+            "tollFare": toll,
+            "fuelPrice": fuel,
+        }
+    }
+
 async def test_geocode_sends_ncp_headers_and_returns_addresses(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
@@ -88,9 +100,9 @@ async def test_driving_route_parses_ms_duration_and_joins_waypoints(
         },
     )
 
-    route = await _maps_api(hass).async_get_driving_route(ORIGIN, DESTINATION, [VIA, VIA])
+    routes = await _maps_api(hass).async_get_driving_routes(ORIGIN, DESTINATION, [VIA, VIA])
 
-    assert route == RouteResult(duration=600, distance=4200)
+    assert routes == [RouteResult(duration=600, distance=4200, labels=("best",))]
     url = aioclient_mock.mock_calls[0][1]
     assert url.query["start"] == "127.0276,37.4979"
     assert url.query["goal"] == "127.0364,37.5006"
@@ -106,13 +118,13 @@ async def test_driving_route_parses_ms_duration_and_joins_waypoints(
         {"exc": TimeoutError()},
     ],
 )
-async def test_driving_route_failure_degrades_to_none(
+async def test_driving_route_failure_degrades_to_no_routes(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, mock_kwargs: dict
 ) -> None:
-    """Any driving lookup failure returns None instead of raising."""
+    """Any driving lookup failure returns no routes instead of raising."""
     aioclient_mock.get(DRIVING_URL, **mock_kwargs)
 
-    assert await _maps_api(hass).async_get_driving_route(ORIGIN, DESTINATION, []) is None
+    assert await _maps_api(hass).async_get_driving_routes(ORIGIN, DESTINATION, []) == []
 
 
 async def test_transit_route_parses_top_path(
@@ -215,9 +227,8 @@ async def test_driving_route_parses_path_as_lat_lng(
         },
     )
 
-    route = await _maps_api(hass).async_get_driving_route(ORIGIN, DESTINATION, [])
+    [route] = await _maps_api(hass).async_get_driving_routes(ORIGIN, DESTINATION, [])
 
-    assert route is not None
     assert route.path == [(37.4979, 127.0276), (37.5006, 127.0364)]
 
 
@@ -355,9 +366,8 @@ async def test_driving_route_parses_guide_steps(
         },
     )
 
-    route = await _maps_api(hass).async_get_driving_route(ORIGIN, DESTINATION, [])
+    [route] = await _maps_api(hass).async_get_driving_routes(ORIGIN, DESTINATION, [])
 
-    assert route is not None
     assert route.steps == [
         {"instruction": "테헤란로 방면으로 우회전", "distance": 300, "duration": 60}
     ]
@@ -696,3 +706,65 @@ async def test_subway_arrivals_query_the_station(
 
     assert arrivals[0]["routeType"]["name"] == "2호선"
     assert aioclient_mock.mock_calls[0][1].query == {"station": "222", "subwayArrivalCount": "3"}
+
+
+async def test_driving_routes_ask_three_options_in_one_call(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """One Directions 5 call returns best, fastest, and toll-free routes, with costs."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [_car(900000, 12000, 1500, 1800)],
+                "trafast": [_car(840000, 13000, 2400, 1900)],
+                "traavoidtoll": [_car(1200000, 11000, 0, 1600)],
+            },
+        },
+    )
+
+    routes = await _maps_api(hass).async_get_driving_routes(ORIGIN, DESTINATION, [])
+
+    assert aioclient_mock.call_count == 1
+    assert aioclient_mock.mock_calls[0][1].query["option"] == "traoptimal:trafast:traavoidtoll"
+    assert [(r.labels, r.duration, r.toll_fare, r.fuel_price) for r in routes] == [
+        (("best",), 900, 1500, 1800),
+        (("minimum_duration",), 840, 2400, 1900),
+        (("toll_free",), 1200, 0, 1600),
+    ]
+
+
+async def test_driving_routes_merge_identical_options(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Options that pick the same route become one route carrying both labels."""
+    same = {"summary": {"duration": 600000, "distance": 4200, "tollFare": 0, "fuelPrice": 700}}
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {"traoptimal": [same], "trafast": [same], "traavoidtoll": [same]},
+        },
+    )
+
+    routes = await _maps_api(hass).async_get_driving_routes(ORIGIN, DESTINATION, [])
+
+    assert [r.labels for r in routes] == [("best", "minimum_duration", "toll_free")]
+
+
+async def test_driving_routes_merge_the_same_route_despite_timing_noise(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Options returning the same road (same distance, tolls, and line) merge even when
+    their real-time durations differ by a few milliseconds."""
+    path = [[127.0, 37.5], [127.1, 37.4]]
+    best = {"summary": {"duration": 3323000, "distance": 34093, "tollFare": 0}, "path": path}
+    free = {"summary": {"duration": 3323450, "distance": 34093, "tollFare": 0}, "path": path}
+    aioclient_mock.get(
+        DRIVING_URL, json={"code": 0, "route": {"traoptimal": [best], "traavoidtoll": [free]}}
+    )
+
+    routes = await _maps_api(hass).async_get_driving_routes(ORIGIN, DESTINATION, [])
+
+    assert [r.labels for r in routes] == [("best", "toll_free")]
