@@ -65,3 +65,11 @@ def test_every_service_field_is_translated(name: str) -> None:
             label = f"{name}.json: {service}.{field}"
             assert fields[field]["name"], f"{label} has no name"
             assert fields[field]["description"], f"{label} has no description"
+
+
+@pytest.mark.parametrize(("name", "title"), [("en", "Naver Map"), ("ko", "네이버 지도")])
+def test_integration_title_is_translated(name: str, title: str) -> None:
+    """The root title names the integration in each language (the frontend prefers it
+    over manifest.json's name)."""
+    data = json.loads((TRANSLATIONS / f"{name}.json").read_text(encoding="utf-8"))
+    assert data["title"] == title
