@@ -521,10 +521,13 @@ class NaverMapPanel extends HTMLElement {
     });
   }
 
-  // App links replace the page, so only web links open a new tab.
+  // Web links open a new tab. App links differ per companion app: Android
+  // intercepts intent: URLs only on same-frame navigation, while iOS hands a
+  // custom scheme to the OS only for new-window (target=_blank) links.
   _openLink(webUrl, app) {
     const href = app || webUrl;
-    const target = app ? "" : ' target="_blank" rel="noopener noreferrer"';
+    const newTab = !app || mobilePlatform() === "ios";
+    const target = newTab ? ' target="_blank" rel="noopener noreferrer"' : "";
     return `<a class="open" href="${escapeHtml(href)}"${target}>${this._t.openInNaver}</a>`;
   }
 
