@@ -111,6 +111,8 @@ const STRINGS = {
     noFolder: "No folder",
     makeZone: "Make HA zone",
     zone: "Zone",
+    favorites: "Favorites",
+    entities: "Entities",
     items: (n) => `${n}`,
     dragHint: "Drag ≡ to reorder or drop onto a folder",
     setOrigin: "Origin",
@@ -206,6 +208,8 @@ const STRINGS = {
     noFolder: "폴더 없음",
     makeZone: "HA 구역으로",
     zone: "구역",
+    favorites: "즐겨찾기",
+    entities: "엔티티",
     items: (n) => `${n}`,
     dragHint: "≡를 끌어 순서를 바꾸거나 폴더 위에 놓으세요",
     setOrigin: "출발",
@@ -333,6 +337,17 @@ function distanceMeters([lat1, lng1], [lat2, lng2]) {
 }
 
 const realtimeKey = (step) => `${step.type}:${step.stop_id}:${step.way || ""}`;
+const PLACE_LINK = "https://map.naver.com/p/entry/place";
+const mapSearchUrl = (name) => `https://map.naver.com/p/search/${encodeURIComponent(name)}`;
+
+// A saved favorite in the shape of a search result (for details and links).
+const leafPlace = (leaf) => ({
+  place_name: leaf.name,
+  latitude: leaf.latitude,
+  longitude: leaf.longitude,
+  ...(leaf.place_id ? { place_id: leaf.place_id } : {}),
+});
+
 // crypto.randomUUID needs a secure context, which HA over plain http lacks.
 const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const placeKey = (place) => `${place.place_name}|${place.latitude}|${place.longitude}`;
@@ -394,6 +409,7 @@ class NaverMapPanel extends HTMLElement {
     this._confirmRemove = null; // saved node id waiting for a second tap
     this._saved = null; // favorites tree from user data; null until loaded
     this._editing = false;
+    this._activeSaved = null; // saved favorite whose details are shown
     this._drag = null;
     this._here = null; // device position [lat, lng], when the browser shares it
     this._sheet = "peek";
@@ -1123,6 +1139,10 @@ class NaverMapPanel extends HTMLElement {
         if (!location) break;
         if (action === "saved-select") {
           this._map?.fitBounds([location], { zoom: 16 });
+          // Favorites are Naver places: show their summary, as in the Places tab.
+          this._activeSaved = leaf.kind === "place" && this._activeSaved !== leaf.id ? leaf.id : null;
+          if (this._activeSaved) this._loadDetails(leafPlace(leaf));
+          this._render();
           break;
         }
         const label = this._leafName(leaf);
@@ -1238,6 +1258,18 @@ class NaverMapPanel extends HTMLElement {
     }
     const slot = ev.target.dataset.entity;
     if (!slot || !ev.target.value) return;
+    if (ev.target.value.startsWith("fav:")) {
+      const found = NaverMapPanel._locate(this._savedTree(), ev.target.value.slice(4));
+      if (!found) return;
+      const leaf = found.node;
+      this._queries[slot] = leaf.name;
+      this._setPoint(slot, {
+        label: leaf.name,
+        favoriteId: leaf.id,
+        location: [leaf.latitude, leaf.longitude],
+      });
+      return;
+    }
     const state = this._hass.states[ev.target.value];
     if (!state) return;
     const label = state.attributes.friendly_name || state.entity_id;
@@ -1352,7 +1384,7 @@ class NaverMapPanel extends HTMLElement {
     } catch (err) {
       this._details[key] = { error: err.message || String(err) };
     }
-    if (this._tab === "place") this._render();
+    if (this._tab !== "route") this._render();
   }
 
   async _search(slot) {
@@ -1657,16 +1689,26 @@ class NaverMapPanel extends HTMLElement {
     }
     return `
       <li class="node leaf">
-        <div class="node-row card place" data-id="${leaf.id}" data-kind="${leaf.kind}">
+        <div class="node-row card place ${leaf.id === this._activeSaved ? "active" : ""}" data-id="${leaf.id}" data-kind="${leaf.kind}">
           <button class="plain" data-action="saved-select" data-id="${leaf.id}">
             <b><ha-icon class="zone-icon" icon="${escapeHtml(leafIcon)}"></ha-icon>${escapeHtml(name)}${leaf.kind === "zone" ? ` <span class="label">${t.zone}</span>` : ""}</b>
             <small>${[meters != null ? this._formatDistance(meters) : null, leaf.address && escapeHtml(leaf.address)].filter(Boolean).join(" · ")}</small>
           </button>
+          ${leaf.id === this._activeSaved ? this._renderDetails(leafPlace(leaf)) : ""}
           <div class="actions">
             <button class="chip" data-action="saved-use" data-slot="origin" data-id="${leaf.id}">
               <span class="dot" style="background:${COLORS.origin}"></span>${t.setOrigin}</button>
             <button class="chip" data-action="saved-use" data-slot="destination" data-id="${leaf.id}">
               <span class="dot" style="background:${COLORS.destination}"></span>${t.setDestination}</button>
+            ${
+              leaf.kind === "place"
+                ? this._openLink(
+                    this._details[placeKey(leafPlace(leaf))]?.place_url ||
+                      (leaf.place_id ? `${PLACE_LINK}/${leaf.place_id}` : mapSearchUrl(leaf.name)),
+                    appUrl("place", { lat: leaf.latitude, lng: leaf.longitude, name: leaf.name })
+                  )
+                : ""
+            }
           </div>
         </div>
       </li>`;
@@ -1728,12 +1770,26 @@ class NaverMapPanel extends HTMLElement {
   _renderSlot(slot, entities) {
     const t = this._t;
     const point = this._points[slot];
-    const options = entities
+    const entityOptions = entities
       .map(
         (s) =>
           `<option value="${escapeHtml(s.entity_id)}" ${point?.entityId === s.entity_id ? "selected" : ""}>${escapeHtml(s.attributes.friendly_name || s.entity_id)}</option>`
       )
       .join("");
+    // Favorites first, labelled with their folder, then the entities.
+    const favoriteOptions = this._savedTree()
+      .flatMap((node) =>
+        node.kind === "folder" ? node.children.map((leaf) => [leaf, node.name]) : [[node, null]]
+      )
+      .filter(([leaf]) => leaf.kind === "place")
+      .map(
+        ([leaf, folder]) =>
+          `<option value="fav:${leaf.id}" ${point?.favoriteId === leaf.id ? "selected" : ""}>${escapeHtml(folder ? `${folder} › ${leaf.name}` : leaf.name)}</option>`
+      )
+      .join("");
+    const options =
+      (favoriteOptions ? `<optgroup label="${t.favorites}">${favoriteOptions}</optgroup>` : "") +
+      `<optgroup label="${t.entities}">${entityOptions}</optgroup>`;
     const value = this._queries[slot] || point?.label || "";
     return `
       <div class="point-row">
@@ -2022,7 +2078,8 @@ const STYLE = `
   .children { margin-left: 18px; padding-left: 8px; border-left: 2px solid var(--divider-color); }
   .node-row { display: flex; align-items: center; gap: 6px; }
   .node-row.card { padding: 8px 10px; }
-  .node-row.card.place { flex-direction: column; align-items: stretch; padding: 12px; }
+  .node-row.card.place { flex-direction: column; align-items: stretch; padding: 12px; gap: 8px; }
+  .node-row.card.place.active { outline: 2px solid ${COLORS.activePlace}; }
   .folder-row { padding: 6px 4px; border-radius: 8px; }
   .folder-head { flex-direction: row; align-items: center; gap: 6px; }
   .folder-head ha-icon { color: var(--primary-color); }

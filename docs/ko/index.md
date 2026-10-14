@@ -52,7 +52,7 @@ NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다. 최신 요
 
 **장소 검색** — 장소를 검색하거나, 카테고리(음식점·카페·편의점·약국 등)를 누르면 내 위치(내 person 위치, 없으면 집) 1km 안의 장소가 나옵니다. 모든 결과가 거리와 함께 지도에 표시됩니다. 결과를 고르면 그 위치로 확대하고 네이버 플레이스 요약(사진, 영업 상태, 리뷰 수, 예약·주문 여부)을 보여주며, 네이버 지도에서 열거나 **출발** / **도착**을 눌러 **길찾기** 탭으로 보낼 수 있습니다.
 
-**저장** — Home Assistant 사용자별로 따로 보관되는 내 즐겨찾기입니다(내 기기 간 동기화, 관리자 권한 불필요). 검색 결과에서 **저장**을 누르고, 출발지나 도착지로 쓸 수 있습니다. Home Assistant 구역도 같은 목록에 나옵니다. **편집**을 누르면 폴더를 만들고, ≡를 끌어 폴더에 넣거나 순서를 바꾸고, 폴더 메뉴로 옮기고, 이름을 바꾸거나 삭제할 수 있습니다. 구역의 이름 변경·삭제는 모든 사용자에게 적용되므로 관리자만 할 수 있고, 관리자는 즐겨찾기를 자동화와 `get_directions`에 쓸 수 있는 수동(passive) 구역(재실 감지에는 쓰이지 않음)으로 바꿀 수도 있습니다.
+**저장** — Home Assistant 사용자별로 따로 보관되는 내 즐겨찾기입니다(내 기기 간 동기화, 관리자 권한 불필요). 검색 결과에서 **저장**을 누르고, 즐겨찾기를 누르면 네이버 플레이스 요약을 보거나 출발지·도착지로 쓸 수 있습니다(길찾기 탭의 지점 선택 목록에도 즐겨찾기가 나옵니다). Home Assistant 구역도 같은 목록에 나옵니다. **편집**을 누르면 폴더를 만들고, ≡를 끌어 폴더에 넣거나 순서를 바꾸고, 폴더 메뉴로 옮기고, 이름을 바꾸거나 삭제할 수 있습니다. 구역의 이름 변경·삭제는 모든 사용자에게 적용되므로 관리자만 할 수 있고, 관리자는 즐겨찾기를 자동화와 `get_directions`에 쓸 수 있는 수동(passive) 구역(재실 감지에는 쓰이지 않음)으로 바꿀 수도 있습니다.
 
 **길찾기**
 
@@ -188,7 +188,9 @@ response_variable: route
 
 ## Assist 지원
 
-같은 네 가지 기능이 LLM 도구 API(`naver_map__search_place`, `naver_map__search_nearby`, `naver_map__geocode_address`, `naver_map__get_directions`)로도 등록되어, AI 기반 Assist 파이프라인(예: Google Generative AI Conversation, OpenAI Conversation)이 자연어로 호출할 수 있습니다. 대화 에이전트 옵션의 노출 LLM API에서 **Naver Map**을 선택하세요. 장소·주변 검색 결과는 카드를 지원하는 Assist 화면(예: voice-satellite 대시보드)에 시각 카드로도 표시됩니다.
+같은 기능이 LLM 도구 API(`naver_map__search_place`, `naver_map__search_nearby`, `naver_map__geocode_address`, `naver_map__get_directions`, `naver_map__get_place_details`, 그리고 요청한 사용자의 패널 저장 장소를 읽는 `naver_map__get_saved_places` — "자주 가는 카페까지 얼마나 걸려?" 같은 질문이 가능)로도 등록되어, AI 기반 Assist 파이프라인(예: Google Generative AI Conversation, OpenAI Conversation)이 자연어로 호출할 수 있습니다. 대화 에이전트 옵션의 노출 LLM API에서 **Naver Map**을 선택하세요. 장소·주변 검색 결과는 카드를 지원하는 Assist 화면(예: voice-satellite 대시보드)에 시각 카드로도 표시됩니다.
+
+저장 장소는 Home Assistant 사용자별이라, 음성 위성처럼 로그인한 사용자가 없는 요청에서는 `naver_map__get_saved_places`가 아무것도 반환하지 않습니다. 구역은 엔티티이므로 그런 경우에도 쓸 수 있습니다.
 
 MCP 클라이언트는 대화 에이전트 설정과 무관하게 `/api/mcp/naver_map`(관리자 권한 토큰 필요)으로 직접 접근할 수도 있습니다.
 

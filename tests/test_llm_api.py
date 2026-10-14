@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from homeassistant.components.frontend.storage import async_user_store
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import llm
@@ -14,9 +15,16 @@ from custom_components.naver_map.const import (
     GEOCODE_URL,
     INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
+    PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
 )
-from tests.const import ADDRESS_ITEM, ENTRY_DATA, REGION_RESPONSE, STARBUCKS_ITEM
+from tests.const import (
+    ADDRESS_ITEM,
+    ENTRY_DATA,
+    PLACE_SUMMARY_RESPONSE,
+    REGION_RESPONSE,
+    STARBUCKS_ITEM,
+)
 from tests.vendor.aiohttp_mock import AiohttpClientMocker
 from tests.vendor.ha_common import MockConfigEntry
 
@@ -31,15 +39,21 @@ async def _setup_integration(hass: HomeAssistant) -> MockConfigEntry:
     return entry
 
 
-def _llm_context() -> llm.LLMContext:
+def _llm_context(user_id: str | None = None) -> llm.LLMContext:
     return llm.LLMContext(
-        platform="test", context=Context(), language="ko", assistant="test", device_id=None
+        platform="test",
+        context=Context(user_id=user_id),
+        language="ko",
+        assistant="test",
+        device_id=None,
     )
 
 
-async def _get_api_instance(hass: HomeAssistant) -> llm.APIInstance:
+async def _get_api_instance(
+    hass: HomeAssistant, user_id: str | None = None
+) -> llm.APIInstance:
     api = next(a for a in llm.async_get_apis(hass) if a.id == DOMAIN)
-    return await api.async_get_api_instance(_llm_context())
+    return await api.async_get_api_instance(_llm_context(user_id))
 
 
 async def test_llm_api_registered_with_stable_id(hass: HomeAssistant) -> None:
@@ -49,7 +63,7 @@ async def test_llm_api_registered_with_stable_id(hass: HomeAssistant) -> None:
     assert any(a.id == DOMAIN for a in llm.async_get_apis(hass))
 
 
-async def test_llm_api_instance_has_four_tools_plus_get_date_time(hass: HomeAssistant) -> None:
+async def test_llm_api_instance_has_six_tools_plus_get_date_time(hass: HomeAssistant) -> None:
     """The aggregated instance has naver_map's 4 tools plus the llm integration's GetDateTime."""
     await _setup_integration(hass)
 
@@ -60,6 +74,8 @@ async def test_llm_api_instance_has_four_tools_plus_get_date_time(hass: HomeAssi
         "naver_map__search_nearby",
         "naver_map__geocode_address",
         "naver_map__get_directions",
+        "naver_map__get_place_details",
+        "naver_map__get_saved_places",
         "llm__GetDateTime",
     }
     assert instance.api_prompt
@@ -267,6 +283,131 @@ async def test_tools_declare_external_read_only_metadata(hass: HomeAssistant) ->
             continue
         assert tool.integration == DOMAIN
         assert tool.title
+        # Saved places are local data; every other tool calls Naver.
         assert tool.annotations == llm.ToolAnnotations(
-            read_only=True, destructive=False, idempotent=True, open_world=True
+            read_only=True,
+            destructive=False,
+            idempotent=True,
+            open_world=tool.name != "naver_map__get_saved_places",
         )
+
+
+# What the panel writes to the user's frontend data (see naver-map-panel.js).
+SAVED_TREE = {
+    "version": 1,
+    "tree": [
+        {
+            "kind": "folder",
+            "id": "f1",
+            "name": "카페",
+            "open": True,
+            "children": [
+                {
+                    "kind": "place",
+                    "id": "p1",
+                    "name": "스타벅스 강남R점",
+                    "latitude": 37.497711,
+                    "longitude": 127.028439,
+                    "address": "서울특별시 강남구 강남대로 390",
+                    "place_id": "1086067689",
+                },
+                {"kind": "zone", "id": "zone:zone.office", "entity_id": "zone.office"},
+                {"kind": "zone", "id": "zone:zone.gone", "entity_id": "zone.gone"},
+            ],
+        },
+        {
+            "kind": "place",
+            "id": "p2",
+            "name": "을지로 노가리골목",
+            "latitude": 37.567,
+            "longitude": 126.99,
+        },
+    ],
+}
+
+
+async def _save_tree(hass: HomeAssistant, user_id: str) -> None:
+    store = await async_user_store(hass, user_id)
+    await store.async_set_item("naver_map_saved", SAVED_TREE)
+
+
+async def test_saved_places_tool_lists_the_users_favorites(hass: HomeAssistant) -> None:
+    """The requesting user's favorites come back flat, with folder names; zones resolve."""
+    await _setup_integration(hass)
+    hass.states.async_set(
+        "zone.office", "0", {"latitude": 37.4, "longitude": 127.1, "friendly_name": "회사"}
+    )
+    await _save_tree(hass, "user-1")
+    instance = await _get_api_instance(hass, "user-1")
+
+    result = await instance.async_call_tool(
+        llm.ToolInput(tool_name="naver_map__get_saved_places", tool_args={})
+    )
+
+    assert result.data["places"] == [
+        {
+            "name": "스타벅스 강남R점",
+            "folder": "카페",
+            "latitude": 37.497711,
+            "longitude": 127.028439,
+            "address": "서울특별시 강남구 강남대로 390",
+            "place_id": "1086067689",
+        },
+        {
+            "name": "회사",
+            "folder": "카페",
+            "latitude": 37.4,
+            "longitude": 127.1,
+            "entity_id": "zone.office",
+        },
+        {"name": "을지로 노가리골목", "folder": None, "latitude": 37.567, "longitude": 126.99},
+    ]
+
+
+async def test_saved_places_tool_filters_by_name_or_folder(hass: HomeAssistant) -> None:
+    """`query` keeps places whose name or folder contains it."""
+    await _setup_integration(hass)
+    await _save_tree(hass, "user-1")
+    instance = await _get_api_instance(hass, "user-1")
+
+    by_folder = await instance.async_call_tool(
+        llm.ToolInput(tool_name="naver_map__get_saved_places", tool_args={"query": "카페"})
+    )
+    by_name = await instance.async_call_tool(
+        llm.ToolInput(tool_name="naver_map__get_saved_places", tool_args={"query": "노가리"})
+    )
+
+    assert [p["name"] for p in by_folder.data["places"]] == ["스타벅스 강남R점"]
+    assert [p["name"] for p in by_name.data["places"]] == ["을지로 노가리골목"]
+
+
+async def test_saved_places_tool_is_per_user(hass: HomeAssistant) -> None:
+    """Another user (or a request with no user, e.g. a voice satellite) sees none."""
+    await _setup_integration(hass)
+    await _save_tree(hass, "user-1")
+
+    for user_id in ("user-2", None):
+        instance = await _get_api_instance(hass, user_id)
+        result = await instance.async_call_tool(
+            llm.ToolInput(tool_name="naver_map__get_saved_places", tool_args={})
+        )
+        assert result.data["places"] == []
+
+
+async def test_place_details_tool_returns_summary(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """get_place_details by place_id returns the summary fields and a card."""
+    await _setup_integration(hass)
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+    instance = await _get_api_instance(hass)
+
+    result = await instance.async_call_tool(
+        llm.ToolInput(
+            tool_name="naver_map__get_place_details", tool_args={"place_id": "1086067689"}
+        )
+    )
+
+    assert result.data["place"]["place_name"] == "스타벅스 강남R점"
+    assert result.data["place"]["business_hours"] == "22:00에 영업 종료"
+    assert result.data["results"][0]["image_url"].startswith("data:image/svg+xml;base64,")

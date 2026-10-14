@@ -11,6 +11,7 @@ from .base_tool import BaseNaverTool
 from .directions_tool import GetDirectionsTool
 from .geocode_tool import GeocodeAddressTool
 from .place_tools import SearchNearbyTool, SearchPlaceTool
+from .saved_tools import GetPlaceDetailsTool, GetSavedPlacesTool
 
 ToolFactory = Callable[[HomeAssistant, str], llm.Tool]
 
@@ -27,4 +28,6 @@ TOOL_FACTORIES: list[ToolFactory] = [
     _factory(SearchNearbyTool),
     _factory(GeocodeAddressTool),
     _factory(GetDirectionsTool),
+    _factory(GetPlaceDetailsTool),
+    _factory(GetSavedPlacesTool),
 ]

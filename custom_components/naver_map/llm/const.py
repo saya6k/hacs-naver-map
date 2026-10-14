@@ -16,6 +16,10 @@ API_PROMPT = (
     "waypoints in order; pick mode 'car', 'transit' (public transit), 'walk', "
     "or 'bicycle'. duration/distance/arrival_time may be null when the "
     "best-effort route lookup fails — the route_url link is still valid. "
+    "When the user refers to one of their own places (\"my favorite cafe\", "
+    "a folder name), call naver_map__get_saved_places first and use its "
+    "coordinates or entity_id. Use naver_map__get_place_details (by place_id, "
+    "or query near a point) for opening status, reviews, and photos. "
     "Cards are already shown for search/nearby results, so keep narration "
     "brief."
 )

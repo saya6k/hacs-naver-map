@@ -59,7 +59,7 @@ On phone widths the map sits above a bottom sheet you can drag between three hei
 
 **Places** — search a place, or tap a category (restaurants, cafes, convenience stores, pharmacies, …) to list places within 1 km of you (your person's location, else home); every result is marked on the map with its distance. Pick a result to zoom to it and see its Naver Place summary (photos, opening status, review counts, booking/order availability), open it in Naver Map, or send it to the **Directions** tab with **Origin** / **Destination**.
 
-**Saved** — your own favorites, kept per Home Assistant user (synced across your devices; no administrator needed): tap **Save** on a search result, then use a favorite as an origin or destination. Home Assistant zones appear in the same list. Tap **Edit** to make folders, drag places (by ≡) into folders or reorder them, move them with the folder menu, and rename or delete them. Renaming or deleting a zone changes it for everyone, so only administrators can; they can also turn a favorite into a passive zone (ignored by presence detection) for automations and `get_directions`.
+**Saved** — your own favorites, kept per Home Assistant user (synced across your devices; no administrator needed): tap **Save** on a search result; tap a favorite for its Naver Place summary, or use it as an origin or destination (favorites are also listed in the Directions tab's point picker). Home Assistant zones appear in the same list. Tap **Edit** to make folders, drag places (by ≡) into folders or reorder them, move them with the folder menu, and rename or delete them. Renaming or deleting a zone changes it for everyone, so only administrators can; they can also turn a favorite into a passive zone (ignored by presence detection) for automations and `get_directions`.
 
 **Directions**
 
@@ -195,7 +195,9 @@ See `custom_components/naver_map/services.yaml` for all fields.
 
 ## Assist support
 
-The same four actions are also registered as an LLM tool API (`naver_map__search_place`, `naver_map__search_nearby`, `naver_map__geocode_address`, `naver_map__get_directions`), so an AI-backed Assist pipeline (e.g. Google Generative AI Conversation, OpenAI Conversation) can call them from natural language. Enable it in the conversation agent's options by selecting **Naver Map** under the exposed LLM APIs. Place and nearby-search results also render as visual cards on cards-capable Assist surfaces (e.g. voice-satellite dashboards).
+The same actions are also registered as an LLM tool API (`naver_map__search_place`, `naver_map__search_nearby`, `naver_map__geocode_address`, `naver_map__get_directions`, `naver_map__get_place_details`, plus `naver_map__get_saved_places` for the requesting user's saved places from the panel — so "how long to my favorite cafe?" works), so an AI-backed Assist pipeline (e.g. Google Generative AI Conversation, OpenAI Conversation) can call them from natural language. Enable it in the conversation agent's options by selecting **Naver Map** under the exposed LLM APIs. Place and nearby-search results also render as visual cards on cards-capable Assist surfaces (e.g. voice-satellite dashboards).
+
+Saved places are per Home Assistant user, so `naver_map__get_saved_places` returns nothing for requests without a signed-in user, such as voice satellites; zones still work there as entities.
 
 MCP clients can also reach the API directly at `/api/mcp/naver_map` (requires an admin-scoped token), independent of any conversation agent's configured API list.
 
