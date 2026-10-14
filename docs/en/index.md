@@ -48,7 +48,7 @@ Adding the integration puts a **Naver Map** entry in the sidebar (all users, not
 
 On phone widths the map sits above a bottom sheet you can drag between three heights, with the tabs in a bottom bar; on tablets and desktops a side panel with an icon rail sits next to the map.
 
-**Places** — search a place; every result is marked on the map. Pick a result to zoom to it, open it in Naver Map, or send it to the **Directions** tab with **Origin** / **Destination**.
+**Places** — search a place; every result is marked on the map. Pick a result to zoom to it and see its Naver Place summary (photos, opening status, review counts, booking/order availability), open it in Naver Map, or send it to the **Directions** tab with **Origin** / **Destination**.
 
 **Directions**
 

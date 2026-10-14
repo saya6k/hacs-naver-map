@@ -23,7 +23,11 @@ const ICONS = {
   pick: "mdi:crosshairs-gps",
   search: "mdi:magnify",
   open: "mdi:open-in-new",
+  hours: "mdi:clock-outline",
+  reviews: "mdi:comment-text-outline",
 };
+const PLACE_FLAGS = ["booking", "order", "delivery", "naver_pay"];
+const MAX_PHOTOS = 3;
 const ENTITY_DOMAINS = ["person", "zone", "device_tracker"];
 const REQUERY_DELAY = 800; // ms; marker drags re-query Directions 5, a paid API
 const COMPACT_WIDTH = 600; // px of panel width; below this the phone layout is used
@@ -88,6 +92,11 @@ const STRINGS = {
     straightLine: "Route line unavailable; showing straight segments",
     openInNaver: "Open in Naver Map",
     steps: "Route details",
+    loadingDetails: "Loading place details…",
+    detailsUnavailable: "Place details unavailable",
+    visitorReviews: (n) => `${n.toLocaleString()} visitor reviews`,
+    blogReviews: (n) => `${n.toLocaleString()} blog reviews`,
+    flags: { booking: "Booking", order: "Order", delivery: "Delivery", naver_pay: "Naver Pay" },
     stops: (n) => `${n} stop${n === 1 ? "" : "s"}`,
     bound: (headsign) => `toward ${headsign}`,
     loading: "Looking up the route…",
@@ -136,6 +145,11 @@ const STRINGS = {
     straightLine: "경로선을 가져오지 못해 직선으로 표시합니다",
     openInNaver: "네이버 지도에서 열기",
     steps: "상세 경로",
+    loadingDetails: "장소 정보를 불러오는 중…",
+    detailsUnavailable: "장소 정보를 불러오지 못했습니다",
+    visitorReviews: (n) => `방문자 리뷰 ${n.toLocaleString()}`,
+    blogReviews: (n) => `블로그 리뷰 ${n.toLocaleString()}`,
+    flags: { booking: "예약", order: "주문", delivery: "배달", naver_pay: "네이버페이" },
     stops: (n) => `${n}개 정류장`,
     bound: (headsign) => `${headsign} 방면`,
     loading: "경로를 찾는 중…",
@@ -184,6 +198,7 @@ function appUrl(action, params) {
     : `nmap://${action}?${query}`;
 }
 
+const placeKey = (place) => `${place.place_name}|${place.latitude}|${place.longitude}`;
 const vehicleKey = (route) => [...(route.vehicle_types || [])].sort().join("+");
 
 // <ha-map> is lazy-loaded by the frontend and is not defined when the panel URL
@@ -220,6 +235,7 @@ class NaverMapPanel extends HTMLElement {
     this._placeQuery = "";
     this._places = [];
     this._activePlace = null;
+    this._details = {}; // naver_map.get_place_details results by place key
     this._points = { origin: null, destination: null };
     this._queries = { origin: "", destination: "" };
     this._results = { origin: [], destination: [] };
@@ -670,11 +686,28 @@ class NaverMapPanel extends HTMLElement {
 
   _selectPlace(index) {
     this._activePlace = index;
+    this._loadDetails(this._places[index]);
     this._render();
     this._drawMap();
     const place = this._places[index];
     this._map?.fitBounds([[place.latitude, place.longitude]], { zoom: 16 });
     this._content.querySelector(`[data-place="${index}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+
+  // One lookup per place picked (never automatic); results are kept for the session.
+  async _loadDetails(place) {
+    const key = placeKey(place);
+    if (this._details[key]) return;
+    this._details[key] = { loading: true };
+    try {
+      this._details[key] = await this._callService("get_place_details", {
+        query: place.place_name,
+        near: { latitude: place.latitude, longitude: place.longitude },
+      });
+    } catch (err) {
+      this._details[key] = { error: err.message || String(err) };
+    }
+    if (this._tab === "place") this._render();
   }
 
   async _search(slot) {
@@ -801,13 +834,14 @@ class NaverMapPanel extends HTMLElement {
             ${place.category_name ? `<small>${escapeHtml(place.category_name)}</small>` : ""}
             <small>${escapeHtml(place.road_address || place.address)}</small>
           </button>
+          ${index === this._activePlace ? this._renderDetails(place) : ""}
           <div class="actions">
             <button class="chip" data-action="place-use" data-slot="origin" data-index="${index}">
               <span class="dot" style="background:${COLORS.origin}"></span>${t.setOrigin}</button>
             <button class="chip" data-action="place-use" data-slot="destination" data-index="${index}">
               <span class="dot" style="background:${COLORS.destination}"></span>${t.setDestination}</button>
             ${this._openLink(
-              place.map_url,
+              this._details[placeKey(place)]?.place_url || place.map_url,
               appUrl("place", { lat: place.latitude, lng: place.longitude, name: place.place_name })
             )}
           </div>
@@ -822,6 +856,35 @@ class NaverMapPanel extends HTMLElement {
       </div>
       ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
       ${places ? `<ul class="list">${places}</ul>` : ""}`;
+  }
+
+  // Naver Place summary of the selected place: photos, status, reviews, services.
+  _renderDetails(place) {
+    const t = this._t;
+    const details = this._details[placeKey(place)];
+    if (!details || details.loading) return `<p class="muted">${t.loadingDetails}</p>`;
+    if (details.error) return `<p class="muted">${t.detailsUnavailable}</p>`;
+    const photos = (details.images || [])
+      .slice(0, MAX_PHOTOS)
+      .map(
+        (url) =>
+          `<img src="${escapeHtml(url)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+      )
+      .join("");
+    const reviews = [
+      details.visitor_review_count != null ? t.visitorReviews(details.visitor_review_count) : null,
+      details.blog_review_count != null ? t.blogReviews(details.blog_review_count) : null,
+    ].filter(Boolean);
+    const flags = PLACE_FLAGS.filter((flag) => details[flag])
+      .map((flag) => `<span class="label">${t.flags[flag]}</span>`)
+      .join("");
+    return `
+      <div class="details">
+        ${photos ? `<div class="photos">${photos}</div>` : ""}
+        ${details.business_hours ? `<div class="fact">${icon("hours")}<span>${escapeHtml(details.business_hours)}</span></div>` : ""}
+        ${reviews.length ? `<div class="fact">${icon("reviews")}<span>${reviews.join(" · ")}</span></div>` : ""}
+        ${flags ? `<div class="labels">${flags}</div>` : ""}
+      </div>`;
   }
 
   _renderRouteTab() {
@@ -1094,6 +1157,12 @@ const STYLE = `
   .searchbar > ha-icon { color: var(--secondary-text-color); }
   .place { display: flex; flex-direction: column; gap: 8px; }
   .place.active { outline: 2px solid ${COLORS.activePlace}; }
+  .details { display: flex; flex-direction: column; gap: 6px; }
+  .photos { display: grid; grid-template-columns: repeat(${MAX_PHOTOS}, 1fr); gap: 4px; }
+  .photos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px;
+    background: var(--secondary-background-color); }
+  .fact { display: flex; align-items: center; gap: 6px; font-size: 14px; }
+  .fact ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
   .open { display: inline-flex; align-items: center; gap: 4px; color: var(--primary-color); text-decoration: none; font-size: 14px; }
   .open ha-icon { --mdc-icon-size: 18px; }
