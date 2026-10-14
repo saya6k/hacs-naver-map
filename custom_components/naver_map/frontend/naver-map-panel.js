@@ -27,6 +27,23 @@ const ICONS = {
   reviews: "mdi:comment-text-outline",
 };
 const PLACE_FLAGS = ["booking", "order", "delivery", "naver_pay"];
+// Category shortcuts under the search bar (naver_map.search_nearby categories),
+// in the order the Naver Map app shows its own.
+const NEARBY_CATEGORIES = {
+  restaurant: "mdi:silverware-fork-knife",
+  cafe: "mdi:coffee",
+  convenience_store: "mdi:store-24-hour",
+  supermarket: "mdi:cart",
+  pharmacy: "mdi:pill",
+  hospital: "mdi:hospital-box",
+  gas_station: "mdi:gas-station",
+  parking: "mdi:parking",
+  bank: "mdi:bank",
+  subway_station: "mdi:subway-variant",
+  accommodation: "mdi:bed",
+  tourist_attraction: "mdi:camera",
+};
+const NEARBY_RADIUS = 1000; // m
 const MAX_PHOTOS = 3;
 const ENTITY_DOMAINS = ["person", "zone", "device_tracker"];
 const REQUERY_DELAY = 800; // ms; marker drags re-query Directions 5, a paid API
@@ -92,6 +109,23 @@ const STRINGS = {
     straightLine: "Route line unavailable; showing straight segments",
     openInNaver: "Open in Naver Map",
     steps: "Route details",
+    categories: {
+      restaurant: "Restaurants",
+      cafe: "Cafes",
+      convenience_store: "Convenience",
+      supermarket: "Supermarkets",
+      pharmacy: "Pharmacies",
+      hospital: "Hospitals",
+      gas_station: "Gas",
+      parking: "Parking",
+      bank: "Banks",
+      subway_station: "Subway",
+      accommodation: "Stays",
+      tourist_attraction: "Sights",
+    },
+    nearbyOf: (name) => `Within 1 km of ${name}`,
+    home: "Home",
+    noNearby: "Nothing found nearby",
     loadingDetails: "Loading place details…",
     detailsUnavailable: "Place details unavailable",
     visitorReviews: (n) => `${n.toLocaleString()} visitor reviews`,
@@ -145,6 +179,23 @@ const STRINGS = {
     straightLine: "경로선을 가져오지 못해 직선으로 표시합니다",
     openInNaver: "네이버 지도에서 열기",
     steps: "상세 경로",
+    categories: {
+      restaurant: "음식점",
+      cafe: "카페",
+      convenience_store: "편의점",
+      supermarket: "마트",
+      pharmacy: "약국",
+      hospital: "병원",
+      gas_station: "주유소",
+      parking: "주차장",
+      bank: "은행",
+      subway_station: "지하철역",
+      accommodation: "숙소",
+      tourist_attraction: "관광명소",
+    },
+    nearbyOf: (name) => `${name} 주변 1km`,
+    home: "집",
+    noNearby: "주변에서 찾지 못했습니다",
     loadingDetails: "장소 정보를 불러오는 중…",
     detailsUnavailable: "장소 정보를 불러오지 못했습니다",
     visitorReviews: (n) => `방문자 리뷰 ${n.toLocaleString()}`,
@@ -233,6 +284,7 @@ class NaverMapPanel extends HTMLElement {
     super();
     this._tab = "place";
     this._placeQuery = "";
+    this._nearbyCategory = null;
     this._places = [];
     this._activePlace = null;
     this._details = {}; // naver_map.get_place_details results by place key
@@ -563,6 +615,9 @@ class NaverMapPanel extends HTMLElement {
       case "place-search":
         this._searchPlaces();
         break;
+      case "nearby":
+        this._searchNearby(el.dataset.category);
+        break;
       case "place-select":
         this._selectPlace(index);
         break;
@@ -671,6 +726,7 @@ class NaverMapPanel extends HTMLElement {
   async _searchPlaces() {
     const query = this._placeQuery.trim();
     if (!query) return;
+    this._nearbyCategory = null;
     this._error = null;
     this._activePlace = null;
     try {
@@ -678,6 +734,45 @@ class NaverMapPanel extends HTMLElement {
     } catch (err) {
       this._places = [];
       this._error = err.message || String(err);
+    }
+    this._setSheet("peek");
+    this._render();
+    this._drawMap();
+  }
+
+  // Where category shortcuts search: the signed-in user's person, else home.
+  _nearbyCenter() {
+    const userId = this._hass.user?.id;
+    const person = Object.values(this._hass.states).find(
+      (s) =>
+        s.entity_id.startsWith("person.") &&
+        s.attributes.user_id === userId &&
+        typeof s.attributes.latitude === "number" &&
+        typeof s.attributes.longitude === "number"
+    );
+    if (person) {
+      return { input: person.entity_id, name: person.attributes.friendly_name || person.entity_id };
+    }
+    const { latitude, longitude } = this._hass.config;
+    return { input: { latitude, longitude }, name: this._t.home };
+  }
+
+  async _searchNearby(category) {
+    this._nearbyCategory = category;
+    this._placeQuery = "";
+    this._error = null;
+    this._activePlace = null;
+    try {
+      const response = await this._callService("search_nearby", {
+        center: this._nearbyCenter().input,
+        category,
+        radius: NEARBY_RADIUS,
+      });
+      this._places = response.results;
+    } catch (err) {
+      this._places = [];
+      // search_nearby reports an empty area as an error; say so plainly.
+      this._error = err.code === "service_validation_error" ? this._t.noNearby : err.message || String(err);
     }
     this._setSheet("peek");
     this._render();
@@ -700,10 +795,15 @@ class NaverMapPanel extends HTMLElement {
     if (this._details[key]) return;
     this._details[key] = { loading: true };
     try {
-      this._details[key] = await this._callService("get_place_details", {
-        query: place.place_name,
-        near: { latitude: place.latitude, longitude: place.longitude },
-      });
+      this._details[key] = await this._callService(
+        "get_place_details",
+        place.place_id
+          ? { place_id: place.place_id }
+          : {
+              query: place.place_name,
+              near: { latitude: place.latitude, longitude: place.longitude },
+            }
+      );
     } catch (err) {
       this._details[key] = { error: err.message || String(err) };
     }
@@ -831,7 +931,16 @@ class NaverMapPanel extends HTMLElement {
         <li class="card place ${index === this._activePlace ? "active" : ""}" data-place="${index}">
           <button class="plain" data-action="place-select" data-index="${index}">
             <b>${escapeHtml(place.place_name)}</b>
-            ${place.category_name ? `<small>${escapeHtml(place.category_name)}</small>` : ""}
+            ${
+              place.category_name || place.distance != null
+                ? `<small>${[
+                    place.category_name && escapeHtml(place.category_name),
+                    place.distance != null && this._formatDistance(place.distance),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}</small>`
+                : ""
+            }
             <small>${escapeHtml(place.road_address || place.address)}</small>
           </button>
           ${index === this._activePlace ? this._renderDetails(place) : ""}
@@ -854,6 +963,14 @@ class NaverMapPanel extends HTMLElement {
         <input data-query="place" placeholder="${escapeHtml(t.searchPlaceholder)}" value="${escapeHtml(this._placeQuery)}" enterkeyhint="search">
         <button class="icon-btn" data-action="place-search" title="${t.search}">${icon("search")}</button>
       </div>
+      <div class="chips categories">${Object.entries(NEARBY_CATEGORIES)
+        .map(
+          ([category, mdi]) =>
+            `<button class="chip ${category === this._nearbyCategory ? "active" : ""}" data-action="nearby" data-category="${category}">
+              <ha-icon icon="${mdi}"></ha-icon>${t.categories[category]}</button>`
+        )
+        .join("")}</div>
+      ${this._nearbyCategory ? `<small>${escapeHtml(t.nearbyOf(this._nearbyCenter().name))}</small>` : ""}
       ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
       ${places ? `<ul class="list">${places}</ul>` : ""}`;
   }
@@ -1098,14 +1215,15 @@ const STYLE = `
 
   /* Tablet and wider: icon rail | side panel | map */
   .layout { position: relative; display: grid; height: 100%;
-    grid-template-columns: var(--rail-w) clamp(320px, 32vw, 400px) 1fr; grid-template-areas: "nav sheet map"; }
+    grid-template-columns: var(--rail-w) clamp(320px, 32vw, 400px) minmax(0, 1fr); grid-template-areas: "nav sheet map"; }
   .nav { grid-area: nav; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0;
     background: var(--card-background-color); border-right: 1px solid var(--divider-color); }
   .nav-tabs { display: flex; flex-direction: column; gap: 4px; }
   .nav-tab { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 64px; padding: 8px 0;
     border: none; background: none; color: var(--secondary-text-color); font-size: 11px; cursor: pointer; border-radius: 12px; }
   .nav-tab.active { color: var(--primary-color); background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.12); }
-  .sheet { grid-area: sheet; display: flex; flex-direction: column; min-height: 0;
+  /* min-width: 0 keeps wide rows (e.g. the category chips) scrolling inside the sheet. */
+  .sheet { grid-area: sheet; display: flex; flex-direction: column; min-height: 0; min-width: 0;
     border-right: 1px solid var(--divider-color); background: var(--primary-background-color); }
   .handle { display: none; }
   .content { flex: 1; overflow-y: auto; padding: 12px 12px calc(12px + var(--safe-area-inset-bottom, 0px));
@@ -1114,7 +1232,7 @@ const STYLE = `
   .map ha-map { display: block; height: 100%; }
 
   /* Phone: map above a draggable bottom sheet, bottom tab bar */
-  :host(.compact) .layout { grid-template-columns: 1fr;
+  :host(.compact) .layout { grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 1fr var(--sheet-h, 45%) calc(var(--nav-h) + var(--safe-area-inset-bottom, 0px)); grid-template-areas: "map" "sheet" "nav"; }
   :host(.compact) .layout:not(.dragging) { transition: grid-template-rows 0.2s ease; }
   :host(.compact) .nav { flex-direction: row; justify-content: center; border-right: none;
@@ -1181,6 +1299,9 @@ const STYLE = `
   .summary { display: flex; flex-direction: column; gap: 6px; }
   .toolbar { display: flex; align-items: center; gap: 8px; }
   .chips { flex: 1; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .categories { flex: none; margin: 0 -12px; padding: 0 12px 2px; }
+  .categories ha-icon { --mdc-icon-size: 18px; }
+  .categories .chip:not(.active) ha-icon { color: var(--primary-color); }
   .sort { padding: 6px 8px; border-radius: 16px; font-size: 13px; }
   .alternative { display: flex; flex-direction: column; gap: 8px; }
   .alternative.active { outline: 2px solid var(--primary-color); }
