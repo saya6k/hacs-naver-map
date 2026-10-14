@@ -30,7 +30,7 @@
     },
     "search_nearby": {
       "name": "Search nearby",
-      "description": "Searches for places of a category or keyword around a center point, returning up to 5 results ordered by distance.",
+      "description": "Searches for places of a category or keyword around a center point, returning up to 10 results ordered by distance, each with its Naver Place ID when available.",
       "fields": {
         "center": {
           "name": "Center",

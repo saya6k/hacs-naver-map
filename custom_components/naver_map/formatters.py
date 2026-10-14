@@ -59,6 +59,20 @@ def place_result(item: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def instant_place_result(item: dict[str, Any]) -> dict[str, Any]:
+    """Map a map.naver.com autocomplete place to the place response schema (plus place_id)."""
+    return {
+        "place_name": item["title"],
+        "latitude": float(item["y"]),
+        "longitude": float(item["x"]),
+        "address": item.get("jibunAddress") or "",
+        "road_address": item.get("roadAddress") or "",
+        "map_url": f"{PLACE_LINK_BASE}/{item['id']}",
+        "category_name": item.get("ctg"),
+        "place_id": item["id"],
+    }
+
+
 def _count(text: str | None) -> int | None:
     """Read a count out of display text such as "방문자 리뷰 8,266"."""
     digits = _NON_DIGIT.sub("", text or "")

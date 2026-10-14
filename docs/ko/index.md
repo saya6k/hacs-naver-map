@@ -12,7 +12,7 @@
 ## 기능
 
 - **`search_place`** — 키워드 장소 검색. 상위 5건의 좌표·주소·지도 링크를 반환합니다.
-- **`search_nearby`** — 중심 지점(엔티티 또는 좌표) 주변을 카테고리 또는 키워드로 검색. 거리순 정렬, 각 결과에 `distance` 포함.
+- **`search_nearby`** — 중심 지점(엔티티 또는 좌표) 주변을 카테고리 또는 키워드로 검색. 거리순 정렬, 각 결과에 `distance`(가능하면 네이버 플레이스 `place_id`도) 포함.
 - **`geocode_address`** — 주소를 WGS84 좌표로 변환. 가장 일치하는 결과의 지번·도로명 주소, 우편번호, 지도 링크를 반환합니다.
 - **`get_place_details`** — 네이버 플레이스 요약: 영업 상태, 리뷰 수, 사진, 예약·주문 여부, 장소 링크.
 - **`get_directions`** — 네이버 지도 경로 링크 + 구간별 지점 + 자동차·대중교통·도보·자전거 소요시간/도착 예정 시각. 지점은 엔티티(person / device_tracker / zone / …) 또는 좌표.
@@ -106,7 +106,7 @@ response_variable: nearby
 
 카테고리(18종): `cafe`, `restaurant`, `convenience_store`, `supermarket`, `hospital`, `pharmacy`, `subway_station`, `bank`, `gas_station`, `parking`, `academy`, `school`, `daycare`, `cultural_facility`, `real_estate`, `public_institution`, `tourist_attraction`, `accommodation`. UI에서는 현지화된 이름(카페, 맛집, …)으로 표시되며, 각각 한국어 키워드로 검색됩니다.
 
-동작 방식: 네이버 지역 검색 API는 좌표를 받지 않으므로 중심 지점을 역지오코딩해 행정구역(예: `성남시 분당구 삼평동`)을 구하고, 그 지역 안에서 키워드를 검색한 뒤 `radius` 밖의 결과를 제외합니다. 검색 API는 1회 최대 5건만 반환하므로 주변 검색 결과도 **최대 5건**이며, 반경 밖 결과가 있으면 더 적어집니다.
+동작 방식: 네이버 지도의 (비공개) 자동완성에 중심 좌표 주변의 키워드를 물어 `place_id`가 있는 장소를 **최대 10건** 받고, `radius` 밖의 결과를 제외합니다. 이 조회가 실패하면 공식 지역 검색 API로 전환합니다. 이 API는 좌표를 받지 않으므로 중심 지점을 역지오코딩해 행정구역(예: `성남시 분당구 삼평동`) 안에서 키워드를 검색하며 결과는 **최대 5건**입니다.
 
 ### `naver_map.geocode_address`
 

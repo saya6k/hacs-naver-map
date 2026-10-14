@@ -95,10 +95,42 @@ async def test_search_place_api_error(
     assert err.value.translation_key == "api_error"
 
 
+async def test_search_nearby_uses_autocomplete_near_center(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Autocomplete around the center gives place ids; far results drop, near sort first."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+
+    response = await _call(
+        hass,
+        "search_nearby",
+        {"center": {"latitude": 37.4979, "longitude": 127.0276}, "category": "cafe", "radius": 100},
+    )
+
+    assert response["results"] == [
+        {
+            "place_name": "스타벅스 강남R점",
+            "latitude": 37.497711,
+            "longitude": 127.028439,
+            "address": "",
+            "road_address": "서울특별시 강남구 강남대로 390 (역삼동)",
+            "map_url": "https://map.naver.com/p/entry/place/1086067689",
+            "category_name": "카페",
+            "place_id": "1086067689",
+            "distance": 77,
+        }
+    ]
+    url = aioclient_mock.mock_calls[0][1]
+    assert url.query["query"] == "카페"
+    assert url.query["coords"] == "37.4979,127.0276"
+    assert aioclient_mock.call_count == 1  # no official-API fallback
+
+
 async def test_search_nearby_prefixes_region_filters_and_sorts(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """The keyword is prefixed with the center's region; far results drop, near sort first."""
+    """Fallback: the keyword is prefixed with the center's region; far drop, near sort first."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)
     aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
     aioclient_mock.get(
         LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM, FAR_ITEM, NEAR_ITEM]}
@@ -110,27 +142,29 @@ async def test_search_nearby_prefixes_region_filters_and_sorts(
 
     assert [r["place_name"] for r in response["results"]] == ["스타벅스 삼평점", "스타벅스 판교점"]
     assert [r["distance"] for r in response["results"]] == [22, 111]
-    search_url = aioclient_mock.mock_calls[1][1]
+    search_url = aioclient_mock.mock_calls[2][1]
     assert search_url.query["query"] == "성남시 분당구 삼평동 카페"
 
 
 async def test_search_nearby_by_query_without_region(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """With no region for the center, the bare query is searched."""
+    """Fallback: with no region for the center, the bare query is searched."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=CAPTCHA_RESPONSE)
     aioclient_mock.get(REVERSE_GEOCODE_URL, json={"status": {"code": 3}, "results": []})
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
 
     response = await _call(hass, "search_nearby", {"center": CENTER, "query": "스타벅스"})
 
     assert len(response["results"]) == 1
-    assert aioclient_mock.mock_calls[1][1].query["query"] == "스타벅스"
+    assert aioclient_mock.mock_calls[2][1].query["query"] == "스타벅스"
 
 
 async def test_search_nearby_all_outside_radius(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """When every result is outside the radius, no_results is raised."""
+    """Fallback: when every result is outside the radius, no_results is raised."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)
     aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [FAR_ITEM]})
 

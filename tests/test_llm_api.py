@@ -12,6 +12,7 @@ from custom_components.naver_map.const import (
     DOMAIN,
     DRIVING_URL,
     GEOCODE_URL,
+    INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
     REVERSE_GEOCODE_URL,
 )
@@ -125,6 +126,7 @@ async def test_search_nearby_tool_by_category(
     hass.states.async_set(
         "zone.home", "zoning", {"latitude": 37.3935, "longitude": 127.1112, "friendly_name": "집"}
     )
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)  # official-API fallback
     aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
     instance = await _get_api_instance(hass)

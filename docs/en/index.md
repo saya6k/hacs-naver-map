@@ -11,7 +11,7 @@ Naver Map for Home Assistant — **place search**, **nearby search**, **geocodin
 ## Features
 
 - **`search_place`** — keyword place search, returns the top 5 results with coordinates, addresses, and map links.
-- **`search_nearby`** — search around a center point (entity or coordinates) by category or keyword, ordered by distance, with a `distance` field on each result.
+- **`search_nearby`** — search around a center point (entity or coordinates) by category or keyword, ordered by distance, with a `distance` field (and the Naver Place `place_id` when available) on each result.
 - **`geocode_address`** — convert an address into WGS84 coordinates, returning the best match with its jibun/road address, postal code, and a map link.
 - **`get_place_details`** — a place's Naver Place summary: business-hours status, review counts, photos, booking/order availability, and a link to the place.
 - **`get_directions`** — Naver Map route link + per-leg points + travel time / arrival time for car, transit, walk, and bicycle. Points are entities (person / device_tracker / zone / …) or coordinates.
@@ -105,7 +105,7 @@ response_variable: nearby
 
 Categories (18 total): `cafe`, `restaurant`, `convenience_store`, `supermarket`, `hospital`, `pharmacy`, `subway_station`, `bank`, `gas_station`, `parking`, `academy`, `school`, `daycare`, `cultural_facility`, `real_estate`, `public_institution`, `tourist_attraction`, `accommodation`. In the UI these show as localized labels (카페, 맛집, …); each is searched as a Korean keyword.
 
-How it works: the Naver local search API takes no coordinates, so the center is reverse-geocoded to its district (e.g. `성남시 분당구 삼평동`), the keyword is searched within that district, and results outside `radius` are dropped. The search API returns at most 5 places per call, so a nearby search returns **up to 5** results — fewer when some fall outside the radius.
+How it works: Naver Map's (undocumented) autocomplete is asked for the keyword around the center's coordinates, which yields **up to 10** places with their `place_id`; results outside `radius` are dropped. If that lookup fails, it falls back to the official local search API: that API takes no coordinates, so the center is reverse-geocoded to its district (e.g. `성남시 분당구 삼평동`) and the keyword is searched within it, returning **up to 5** results.
 
 ### `naver_map.geocode_address`
 
