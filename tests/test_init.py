@@ -57,7 +57,7 @@ async def test_setup_entry_registers_sidebar_panel(hass: HomeAssistant) -> None:
 
     panel = hass.data[DATA_PANELS]["naver-map"]
     assert panel.sidebar_title == "Naver Map"
-    assert panel.sidebar_icon == "mdi:map-marker-path"
+    assert panel.sidebar_icon == "mdi:map-marker"
     assert panel.require_admin is False
     custom = panel.config["_panel_custom"]
     assert custom["name"] == "naver-map-panel"

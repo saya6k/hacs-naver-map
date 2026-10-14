@@ -32,7 +32,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         frontend_url_path=PANEL_URL_PATH,
         webcomponent_name=PANEL_ELEMENT,
         sidebar_title="Naver Map",
-        sidebar_icon="mdi:map-marker-path",
+        sidebar_icon="mdi:map-marker",
         module_url=f"{STATIC_URL}/{PANEL_ELEMENT}.js?v={integration.version}",
         embed_iframe=False,
         # The panel keeps its tab bar and controls clear of the safe areas itself;
