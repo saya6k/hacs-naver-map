@@ -7,7 +7,7 @@
 네이버 검색 API, NAVER Cloud Platform Maps, 네이버 지도 웹/내부 API로 **장소 검색**, **주변 검색**,
 **주소 좌표 변환**, **길찾기**(네이버 지도 링크 + 소요시간)를 제공하는 Home Assistant 커스텀 통합입니다. 한국 사용자용.
 
-> **지도 타일 교체는 지원하지 않습니다.** 이 통합은 서비스와 LLM 도구만 제공하며 HA 프런트엔드 지도를 패치하지 않습니다.
+> **지도 타일 교체는 지원하지 않습니다.** 경로 패널은 Home Assistant 기본 지도(OpenStreetMap 타일) 위에 그리며, 타일을 바꾸거나 HA 프런트엔드 지도를 패치하지 않습니다.
 
 ## 기능
 
@@ -15,6 +15,7 @@
 - **`search_nearby`** — 중심 지점(엔티티 또는 좌표) 주변을 카테고리 또는 키워드로 검색. 거리순 정렬, 각 결과에 `distance` 포함.
 - **`geocode_address`** — 주소를 WGS84 좌표로 변환. 가장 일치하는 결과의 지번·도로명 주소, 우편번호, 지도 링크를 반환합니다.
 - **`get_directions`** — 네이버 지도 경로 링크 + 구간별 지점 + 자동차·대중교통·도보·자전거 소요시간/도착 예정 시각. 지점은 엔티티(person / device_tracker / zone / …) 또는 좌표.
+- **경로 패널** — 사이드바 **Naver Map** 패널에서 장소를 검색하고, Home Assistant 기본 지도 위에 경로선을 그리며 소요시간·거리·(대중교통) 환승·요금을 보여줍니다.
 - **Assist / AI 도구 지원** — 같은 기능을 AI 대화 에이전트용 LLM 도구 API로도 노출하며, 결과 카드를 시각적으로 표시합니다.
 - **한국어·영어** UI 번역.
 
@@ -40,6 +41,16 @@
 | **API Key ID / API Key** | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, **Geocoding**·**Reverse Geocoding**·**Directions 5** 활성화 | `geocode_address`, `search_nearby`(지역 조회), `get_directions`(자동차) |
 
 NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다. 최신 요금은 NCP 콘솔에서 확인하세요.
+
+## 경로 패널
+
+통합을 추가하면 사이드바에 **Naver Map** 항목이 생깁니다(관리자가 아닌 사용자도 사용 가능).
+
+1. **출발**과 **도착**을 지정합니다: 장소를 검색해 결과를 고르거나, person / zone / device_tracker 엔티티를 선택하거나, **지도에서 선택**을 누른 뒤 지도를 클릭합니다.
+2. **자동차**, **대중교통**, **도보**, **자전거** 중 하나를 고릅니다.
+3. 지도에 경로선이 그려지고 소요 시간·거리·도착 예정 시각(대중교통은 환승·요금 포함)과 네이버 지도에서 같은 경로를 여는 링크가 표시됩니다. 마커를 끌어 지점을 옮기면 잠시 뒤 경로를 다시 조회합니다.
+
+경로선을 가져오지 못하면 지점 사이를 직선으로 잇습니다. 패널 문구는 사용자 언어(한국어 또는 영어)를 따릅니다.
 
 ## 서비스
 
@@ -110,8 +121,10 @@ data:
   waypoints:                        # 선택, 최대 5개
     - zone.office
   mode: car                         # car | transit | walk | bicycle
+  include_geometry: false           # true면 경로선을 geometry로 추가
 response_variable: route
 # route: route_url / mode / duration(초) / distance(m) / arrival_time / legs[]
+#        (include_geometry 시 + geometry: [[위도, 경도], …] 또는 null)
 ```
 
 전체 필드는 `custom_components/naver_map/services.yaml`을 참고하세요.
@@ -127,6 +140,7 @@ MCP 클라이언트는 대화 에이전트 설정과 무관하게 `/api/mcp/nave
 - **자동차 소요시간**은 NCP Directions 5(공식)에서 가져옵니다. **대중교통·도보·자전거** 소요시간은 네이버 지도의 비공개 내부 경로 API에서 가져오며, 예고 없이 바뀌거나 차단될 수 있습니다. 실패 시 `duration` / `distance` / `arrival_time`은 `null`이 되지만 경로 링크(`route_url`)는 항상 반환됩니다.
 - **`mode: transit`**은 경유지를 지원하지 않으며 응답에 `transfers`·`fare`가 추가됩니다.
 - **경유지가 있는 `mode: bicycle`**은 링크만 제공합니다(소요시간 `null`).
+- **경로 패널**: 자동차 모드에서 경로가 바뀔 때마다 유료 NCP API인 Directions 5를 호출합니다. 마커 드래그는 디바운스되며 자동 반복 조회는 하지 않습니다. 패널 URL로 바로 들어오면 프런트엔드 내부 기능으로 HA 지도 구성요소를 불러오므로 프런트엔드 업데이트로 깨질 수 있으며, 그때는 지도 대신 안내 문구를 표시합니다.
 - **지도 타일 교체 없음** — 상단 안내 참고.
 
 ## 개발

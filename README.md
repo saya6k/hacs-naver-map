@@ -12,7 +12,7 @@
 
 Naver Map for Home Assistant — **place search**, **nearby search**, **geocoding**, and **directions** (Naver Map link plus travel time) built on the Naver Search API, NAVER Cloud Platform Maps, and Naver Map's web/internal APIs. For Korean users.
 
-> **Map-tile replacement is not supported.** This integration provides services and LLM tools only; it does not patch the HA frontend map.
+> **Map-tile replacement is not supported.** The route panel draws on Home Assistant's built-in map (OpenStreetMap tiles); the integration does not replace tiles or patch the HA frontend map.
 
 ## Features
 
@@ -20,6 +20,7 @@ Naver Map for Home Assistant — **place search**, **nearby search**, **geocodin
 - **`search_nearby`** — search around a center point (entity or coordinates) by category or keyword, ordered by distance, with a `distance` field on each result.
 - **`geocode_address`** — convert an address into WGS84 coordinates, returning the best match with its jibun/road address, postal code, and a map link.
 - **`get_directions`** — Naver Map route link + per-leg points + travel time / arrival time for car, transit, walk, and bicycle. Points are entities (person / device_tracker / zone / …) or coordinates.
+- **Route panel** — a **Naver Map** sidebar panel that searches places, draws the route line on Home Assistant's built-in map, and shows travel time, distance, and (transit) transfers/fare.
 - **Assist / AI tool support** — the same actions are exposed as an LLM tool API for AI-backed conversation agents, with visual result cards.
 - **Korean and English** UI translations.
 
@@ -47,6 +48,16 @@ The config flow takes two credential pairs. Only one entry is supported.
 | **API Key ID / API Key** | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, with **Geocoding**, **Reverse Geocoding**, and **Directions 5** enabled | `geocode_address`, `search_nearby` (region lookup), `get_directions` (car) |
 
 NCP Maps is a paid service with a monthly free quota; check the current pricing in the NCP console.
+
+## Route panel
+
+Adding the integration puts a **Naver Map** entry in the sidebar (all users, not only admins).
+
+1. Set the **origin** and **destination**: search a place and pick a result, choose a person / zone / device_tracker entity, or press **Pick on map** and click the map.
+2. Choose **Car**, **Transit**, **Walk**, or **Bicycle**.
+3. The route line is drawn on the map with the travel time, distance, and arrival time (plus transfers and fare for transit), and a link opens the same route on Naver Map. Drag a marker to adjust a point; the route is looked up again after a short pause.
+
+When the route line can't be read, the panel connects the points with straight segments. The panel text follows the user's language (Korean or English).
 
 ## Services
 
@@ -117,8 +128,10 @@ data:
   waypoints:                        # optional, up to 5
     - zone.office
   mode: car                         # car | transit | walk | bicycle
+  include_geometry: false           # true adds the route line as geometry
 response_variable: route
 # route: route_url / mode / duration(s) / distance(m) / arrival_time / legs[]
+#        (+ geometry: [[latitude, longitude], …] or null with include_geometry)
 ```
 
 See `custom_components/naver_map/services.yaml` for all fields.
@@ -134,6 +147,7 @@ MCP clients can also reach the API directly at `/api/mcp/naver_map` (requires an
 - **Car travel time** comes from NCP Directions 5 (official). **Transit, walk, and bicycle** travel times come from Naver Map's undocumented internal route API, which may change or be blocked. On any failure `duration` / `distance` / `arrival_time` degrade to `null` while the route link (`route_url`) is always returned.
 - **`mode: transit`** does not support waypoints and adds `transfers` and `fare` to the response.
 - **`mode: bicycle` with waypoints** is link-only (`null` travel time).
+- **Route panel**: every route change in car mode calls Directions 5, a paid NCP API; marker drags are debounced, and nothing is looked up automatically. The panel loads Home Assistant's map component through frontend internals when its URL is opened directly, so a frontend update can break it; it then shows a notice instead of the map.
 - **No map-tile replacement** — see the note near the top.
 
 ## Development
