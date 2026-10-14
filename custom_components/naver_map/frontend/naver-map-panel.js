@@ -28,6 +28,7 @@ const ICONS = {
   search: "mdi:magnify",
   open: "mdi:open-in-new",
   hours: "mdi:clock-outline",
+  refresh: "mdi:refresh",
   reviews: "mdi:comment-text-outline",
 };
 const PLACE_FLAGS = ["booking", "order", "delivery", "naver_pay"];
@@ -64,6 +65,7 @@ const COLORS = {
 // automations and get_directions can use, and that presence detection ignores.
 const SAVED_ZONE = { icon: "mdi:star", radius: 50, passive: true };
 const SAME_PLACE_DEG = 0.0005; // ~50 m: a zone this close with the same name is the saved place
+const REALTIME_MAX_AGE = 60000; // ms; arrivals are re-read on selection after this
 const LOCATE_TIMEOUT = 8000; // ms to wait for the device position
 const START_ZOOM = 15;
 // Bottom-sheet snap heights on phone widths, as fractions of the panel height
@@ -151,6 +153,13 @@ const STRINGS = {
     blogReviews: (n) => `${n.toLocaleString()} blog reviews`,
     flags: { booking: "Booking", order: "Order", delivery: "Delivery", naver_pay: "Naver Pay" },
     stops: (n) => `${n} stop${n === 1 ? "" : "s"}`,
+    realtime: "Live",
+    arrivingSoon: "Arriving",
+    inMinutes: (n) => `${n} min`,
+    stopsAway: (n) => `${n} stop${n === 1 ? "" : "s"} away`,
+    noRealtime: "No live info",
+    notRunning: "Not running",
+    refresh: "Refresh live arrivals",
     bound: (headsign) => `toward ${headsign}`,
     loading: "Looking up the route…",
     mapUnavailable:
@@ -229,6 +238,13 @@ const STRINGS = {
     blogReviews: (n) => `블로그 리뷰 ${n.toLocaleString()}`,
     flags: { booking: "예약", order: "주문", delivery: "배달", naver_pay: "네이버페이" },
     stops: (n) => `${n}개 정류장`,
+    realtime: "실시간",
+    arrivingSoon: "곧 도착",
+    inMinutes: (n) => `${n}분`,
+    stopsAway: (n) => `${n}정거장 전`,
+    noRealtime: "실시간 정보 없음",
+    notRunning: "운행 종료",
+    refresh: "실시간 도착 새로고침",
     bound: (headsign) => `${headsign} 방면`,
     loading: "경로를 찾는 중…",
     mapUnavailable: "지도 구성요소가 아직 로드되지 않았습니다. 개요 대시보드를 한 번 연 뒤 다시 와 주세요.",
@@ -285,6 +301,7 @@ function distanceMeters([lat1, lng1], [lat2, lng2]) {
   return 2 * 6371000 * Math.asin(Math.sqrt(a));
 }
 
+const realtimeKey = (step) => `${step.type}:${step.stop_id}:${step.way || ""}`;
 const placeKey = (place) => `${place.place_name}|${place.latitude}|${place.longitude}`;
 const vehicleKey = (route) => [...(route.vehicle_types || [])].sort().join("+");
 
@@ -340,6 +357,7 @@ class NaverMapPanel extends HTMLElement {
     this._entityIds = "";
     this._compact = false;
     this._zonesKey = "";
+    this._realtime = {}; // get_transit_arrivals results by boarding stop
     this._confirmRemove = null; // zone entity_id waiting for a second tap
     this._here = null; // device position [lat, lng], when the browser shares it
     this._sheet = "peek";
@@ -892,6 +910,10 @@ class NaverMapPanel extends HTMLElement {
         this._altIndex = index;
         this._render();
         this._drawMap();
+        this._loadRealtime();
+        break;
+      case "realtime-refresh":
+        this._loadRealtime({ force: true });
         break;
     }
   }
@@ -1065,6 +1087,7 @@ class NaverMapPanel extends HTMLElement {
     this._loading = false;
     this._render();
     this._drawMap();
+    this._loadRealtime();
   }
 
   // Transit alternatives that pass the vehicle filter, in the chosen order,
@@ -1085,6 +1108,34 @@ class NaverMapPanel extends HTMLElement {
     if (first) this._altIndex = first.index;
     this._render();
     this._drawMap();
+    this._loadRealtime();
+  }
+
+  // Live arrivals at the boarding stops of the transit route on screen. Read
+  // only when a route is shown or refreshed, one stop at a time, and reused
+  // for a minute, to stay gentle with Naver's undocumented endpoint.
+  async _loadRealtime({ force = false } = {}) {
+    const shown = this._shownRoute();
+    if (this._route?.mode !== "transit" || !shown?.steps) return;
+    for (const step of shown.steps.filter((s) => s.stop_id)) {
+      const key = realtimeKey(step);
+      const cached = this._realtime[key];
+      if (cached?.loading) continue;
+      if (!force && cached?.at && Date.now() - cached.at < REALTIME_MAX_AGE) continue;
+      this._realtime[key] = { ...cached, loading: true };
+      try {
+        const response = await this._callService("get_transit_arrivals", {
+          type: step.type,
+          stop_id: step.stop_id,
+          route_ids: step.route_ids,
+          ...(step.type === "subway" && step.way ? { direction: step.way } : {}),
+        });
+        this._realtime[key] = { arrivals: response.arrivals, at: Date.now() };
+      } catch (err) {
+        this._realtime[key] = { error: err.message || String(err), at: Date.now() };
+      }
+      if (this._tab === "route") this._render();
+    }
   }
 
   // --- formatting -----------------------------------------------------------
@@ -1435,6 +1486,36 @@ class NaverMapPanel extends HTMLElement {
     return `<div class="segbar">${segments}</div>`;
   }
 
+  // "Live 140 Arriving (1 stop away) · 7 min (3 stops away)" under a ride.
+  _renderRealtime(step) {
+    const t = this._t;
+    if (!step.stop_id) return "";
+    const live = this._realtime[realtimeKey(step)];
+    const refresh = `<button class="icon-btn small" data-action="realtime-refresh" title="${t.refresh}">${icon("refresh")}</button>`;
+    if (!live || (live.loading && !live.arrivals)) {
+      return `<div class="live"><span class="live-tag">${t.realtime}</span><small>…</small></div>`;
+    }
+    if (live.error || !live.arrivals?.length) {
+      return `<div class="live"><span class="live-tag">${t.realtime}</span><small>${t.noRealtime}</small>${refresh}</div>`;
+    }
+    const now = Date.now();
+    const vehicle = (v) => {
+      const minutes = Math.max(0, Math.round((new Date(v.arrival_time).getTime() - now) / 60000));
+      const when = minutes < 1 ? t.arrivingSoon : t.inMinutes(minutes);
+      return v.remaining_stops != null ? `${when} (${t.stopsAway(v.remaining_stops)})` : when;
+    };
+    const rows = live.arrivals
+      .map((line) => {
+        const next = line.vehicles.length
+          ? line.vehicles.slice(0, 2).map(vehicle).join(" · ")
+          : t.notRunning;
+        const name = live.arrivals.length > 1 || step.type === "bus" ? `<b>${escapeHtml(line.line)}</b> ` : "";
+        return `<div>${name}${escapeHtml(next)}</div>`;
+      })
+      .join("");
+    return `<div class="live"><span class="live-tag">${t.realtime}</span><div class="live-rows">${rows}</div>${refresh}</div>`;
+  }
+
   _renderSteps(route) {
     const t = this._t;
     const steps = route.steps;
@@ -1463,6 +1544,7 @@ class NaverMapPanel extends HTMLElement {
           ${step.headsign ? `<small>${escapeHtml(t.bound(step.headsign))}</small>` : ""}
           <div>${escapeHtml(step.from)} → ${escapeHtml(step.to)} <small>${t.stops(step.stops)}</small></div>
           <small>${time} · ${this._formatDuration(step.duration)}</small>
+          ${this._renderRealtime(step)}
         </li>`;
       })
       .join("");
@@ -1591,6 +1673,13 @@ const STYLE = `
   .steps ol.transit { list-style: none; padding-left: 0; gap: 8px; margin: 0; }
   .ride { border-left: 4px solid var(--line-color); padding-left: 8px; }
   .walk-step { border-left: 4px dotted var(--divider-color); padding-left: 8px; color: var(--secondary-text-color); }
+  .live { display: flex; align-items: flex-start; gap: 6px; margin-top: 4px; font-size: 13px; }
+  .live-tag { flex: none; padding: 0 6px; border-radius: 4px; font-size: 11px; font-weight: 700; line-height: 18px;
+    color: #fff; background: var(--error-color, #db4437); }
+  .live-rows { flex: 1; display: flex; flex-direction: column; gap: 2px; color: var(--error-color, #db4437); }
+  .live-rows b { color: var(--primary-text-color); }
+  .icon-btn.small { width: 24px; height: 24px; }
+  .icon-btn.small ha-icon { --mdc-icon-size: 16px; }
   .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--line-color);
     color: #fff; font-weight: 600; font-size: 13px; }
 `;
