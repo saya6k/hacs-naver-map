@@ -3,19 +3,45 @@
   "config": {
     "step": {
       "user": {
-        "description": "Enter two credential pairs: a Naver Developers application with the Search API (place search), and a NAVER Cloud Platform Maps application with Geocoding, Reverse Geocoding, and Directions 5 enabled. Each pair is validated with one call.",
+        "description": "The NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Keyword results are also ranked around your home location rather than nationwide. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
         "data": {
-          "client_id": "Naver Developers Client ID",
-          "client_secret": "Naver Developers Client Secret",
           "ncp_key_id": "NCP Maps API Key ID",
-          "ncp_key": "NCP Maps API Key"
+          "ncp_key": "NCP Maps API Key",
+          "client_id": "Naver Developers Client ID (optional)",
+          "client_secret": "Naver Developers Client Secret (optional)"
+        },
+        "data_description": {
+          "ncp_key_id": "Required. Key ID of an NCP Maps application with Geocoding, Reverse Geocoding, and Directions 5 enabled.",
+          "ncp_key": "Required. The same application's key.",
+          "client_id": "Optional. A Naver Developers application with the Search API. Left empty, keyword and nearby search rely only on the unofficial autocomplete (see above).",
+          "client_secret": "Optional. Enter it together with the Client ID, or leave both empty."
+        }
+      },
+      "reconfigure": {
+        "title": "Change credentials",
+        "description": "Change the credentials, or add or drop the optional search keys.\n\nThe NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Keyword results are also ranked around your home location rather than nationwide. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
+        "data": {
+          "ncp_key_id": "NCP Maps API Key ID",
+          "ncp_key": "NCP Maps API Key",
+          "client_id": "Naver Developers Client ID (optional)",
+          "client_secret": "Naver Developers Client Secret (optional)"
+        },
+        "data_description": {
+          "ncp_key_id": "Required. Key ID of an NCP Maps application with Geocoding, Reverse Geocoding, and Directions 5 enabled.",
+          "ncp_key": "Required. The same application's key.",
+          "client_id": "Optional. A Naver Developers application with the Search API. Left empty, keyword and nearby search rely only on the unofficial autocomplete (see above).",
+          "client_secret": "Optional. Enter it together with the Client ID, or leave both empty."
         }
       }
     },
     "error": {
       "invalid_search_auth": "Naver Developers rejected the Client ID/Secret (HTTP 401).",
       "invalid_ncp_auth": "NAVER Cloud Platform rejected the Maps API key (HTTP 401). Check the key and that Geocoding is enabled for the application.",
-      "cannot_connect": "Could not reach the Naver API. Check your network and try again."
+      "cannot_connect": "Could not reach the Naver API. Check your network and try again.",
+      "search_keys_incomplete": "Enter the Client ID and Client Secret together, or leave both empty."
+    },
+    "abort": {
+      "reconfigure_successful": "The credentials were updated."
     }
   },
   "services": {

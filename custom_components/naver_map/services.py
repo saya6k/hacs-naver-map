@@ -39,6 +39,7 @@ from .const import (
     DIRECTIONS_MODES,
     DOMAIN,
     MAX_NEARBY_RADIUS,
+    MAX_SEARCH_RESULTS,
     MAX_WAYPOINTS,
     MODE_BICYCLE,
     MODE_CAR,
@@ -144,7 +145,7 @@ GET_DIRECTIONS_SCHEMA = vol.Schema(
 class NaverClients:
     """The API clients one config entry builds and the services/LLM tools share."""
 
-    search: NaverSearchApi
+    search: NaverSearchApi | None  # None without the optional search keys
     maps: NcpMapsApi
     route: NaverMapRouteApi
     place: NaverPlaceApi
@@ -162,8 +163,25 @@ def _no_results(query: str) -> ServiceValidationError:
     )
 
 
-async def async_search_place(clients: NaverClients, query: str) -> list[dict[str, Any]]:
-    """Keyword-search places anywhere and return place results."""
+async def async_search_place(
+    hass: HomeAssistant, clients: NaverClients, query: str
+) -> list[dict[str, Any]]:
+    """Keyword-search places and return place results.
+
+    With the search keys this is the official local.json search. Without them
+    it is Naver Map's (unofficial) autocomplete, ranked around home.
+    """
+    if clients.search is None:
+        try:
+            places = await clients.place.async_instant_search(
+                query, hass.config.latitude, hass.config.longitude
+            )
+        except _PLACE_ERRORS as err:
+            _LOGGER.warning("Naver place autocomplete failed (no search keys): %r", err)
+            raise _api_error() from err
+        if not places:
+            raise _no_results(query)
+        return [instant_place_result(place) for place in places[:MAX_SEARCH_RESULTS]]
     try:
         items = await clients.search.async_search_local(query)
     except _API_ERRORS as err:
@@ -199,6 +217,9 @@ async def async_search_nearby(
         )
         candidates = [instant_place_result(place) for place in places]
     except _PLACE_ERRORS as err:
+        if clients.search is None:
+            _LOGGER.warning("Naver nearby autocomplete failed (no search keys): %r", err)
+            raise _api_error() from err
         _LOGGER.warning("Naver nearby autocomplete failed, using local search: %r", err)
         try:
             region = await clients.maps.async_region_name(center.longitude, center.latitude)
@@ -412,8 +433,10 @@ def _transit_alternative(route: TransitResult, data: Mapping[str, Any]) -> dict[
     }
 
 
-async def _async_handle_search_place(clients: NaverClients, call: ServiceCall) -> ServiceResponse:
-    return {"results": await async_search_place(clients, call.data[ATTR_QUERY])}
+async def _async_handle_search_place(
+    hass: HomeAssistant, clients: NaverClients, call: ServiceCall
+) -> ServiceResponse:
+    return {"results": await async_search_place(hass, clients, call.data[ATTR_QUERY])}
 
 
 async def _async_handle_search_nearby(
@@ -451,7 +474,11 @@ async def _async_handle_get_directions(
 def async_setup_services(hass: HomeAssistant, clients: NaverClients) -> None:
     """Register the naver_map services against the given API clients."""
     for service, handler, schema in (
-        (SERVICE_SEARCH_PLACE, partial(_async_handle_search_place, clients), SEARCH_PLACE_SCHEMA),
+        (
+            SERVICE_SEARCH_PLACE,
+            partial(_async_handle_search_place, hass, clients),
+            SEARCH_PLACE_SCHEMA,
+        ),
         (
             SERVICE_SEARCH_NEARBY,
             partial(_async_handle_search_nearby, hass, clients),

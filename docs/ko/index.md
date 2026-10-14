@@ -35,14 +35,16 @@
 
 ## 설정
 
-설정 흐름에서 두 종류의 인증 정보를 받습니다. 항목은 하나만 등록할 수 있습니다.
+설정 흐름에서 NAVER Cloud Platform 키(필수)와, 선택 사항인 Naver Developers 검색 키를 받습니다. 항목은 하나만 등록할 수 있으며, 키는 나중에 **재구성**에서 바꿀 수 있습니다.
 
 | 인증 정보 | 발급처 | 용도 |
 |---|---|---|
-| **Client ID / Client Secret** | [Naver Developers](https://developers.naver.com/apps/) → 애플리케이션 등록 → **검색** API 선택 | `search_place`, `search_nearby` |
-| **API Key ID / API Key** | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, **Geocoding**·**Reverse Geocoding**·**Directions 5** 활성화 | `geocode_address`, `search_nearby`(지역 조회), `get_directions`(자동차) |
+| **API Key ID / API Key** (필수) | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, **Geocoding**·**Reverse Geocoding**·**Directions 5** 활성화 | `geocode_address`, `get_directions`(자동차), `search_nearby` 대체 경로의 지역 조회 |
+| **Client ID / Client Secret** (선택) | [Naver Developers](https://developers.naver.com/apps/) → 애플리케이션 등록 → **검색** API 선택 | `search_place`의 공식 키워드 검색, `search_nearby`의 대체 경로 |
 
-NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다. 최신 요금은 NCP 콘솔에서 확인하세요.
+**검색 키 없이 쓰면** 키워드·주변 검색이 네이버 지도 웹의 비공식 자동완성에만 의존합니다. 네이버가 이를 차단하거나 바꾸면 두 검색이 멈추고 공식 검색 API로 대신 조회할 경로가 없으며, 키워드 검색 결과는 전국이 아니라 집 주변 위주로 정렬됩니다. 그 밖의 기능은 똑같이 동작하며, 설정 화면에도 같은 내용이 표시됩니다.
+
+NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다(작성 시점 기준 예: Directions 5 월 6만 회, Geocoding 월 300만 회). 최신 요금은 NCP 콘솔에서 확인하세요. 자동차 길찾기나 주소 변환이 실패하면 [NCP 서비스 상태](https://www.ncloud.com/serviceStatus/)를 확인하세요.
 
 ## 경로 패널
 
