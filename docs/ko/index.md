@@ -46,14 +46,17 @@ NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다. 최신 요
 
 통합을 추가하면 사이드바에 **Naver Map** 항목이 생깁니다(관리자가 아닌 사용자도 사용 가능). 탭이 두 개 있습니다.
 
-**장소 검색** — 장소를 검색하면 모든 결과가 지도에 표시됩니다. 결과를 고르면 그 위치로 확대하고, 네이버 지도에서 열거나 **출발지로** / **도착지로**를 눌러 **길찾기** 탭으로 보낼 수 있습니다.
+휴대폰 폭에서는 지도 아래에 세 단계 높이로 끌어 조절하는 하단 시트와 하단 탭 바가 표시되고, 태블릿·데스크톱에서는 아이콘 레일이 있는 사이드 패널이 지도 옆에 표시됩니다.
+
+**장소 검색** — 장소를 검색하면 모든 결과가 지도에 표시됩니다. 결과를 고르면 그 위치로 확대하고, 네이버 지도에서 열거나 **출발** / **도착**을 눌러 **길찾기** 탭으로 보낼 수 있습니다.
 
 **길찾기**
 
-1. **출발**과 **도착**을 지정합니다: 장소를 검색해 결과를 고르거나, person / zone / device_tracker 엔티티를 선택하거나, **지도에서 선택**을 누른 뒤 지도를 클릭합니다.
+1. **출발**과 **도착**을 지정합니다: 장소를 검색해 결과를 고르거나, person / zone / device_tracker 엔티티를 선택하거나, **지도에서 선택**을 누른 뒤 지도를 클릭합니다. 바꾸기 버튼으로 출발·도착을 맞바꿀 수 있습니다.
 2. **자동차**, **대중교통**, **도보**, **자전거** 중 하나를 고릅니다.
 3. 지도에 경로선이 그려지고 소요 시간·거리·도착 예정 시각(대중교통은 환승·요금 포함)과 네이버 지도에서 같은 경로를 여는 링크가 표시됩니다. 마커를 끌어 지점을 옮기면 잠시 뒤 경로를 다시 조회합니다.
-4. **상세 경로**에는 대중교통의 승차 구간(노선, 방면, 승·하차 정류장, 정류장 수, 시각)과 도보 구간, 또는 자동차·도보·자전거의 회전 안내가 표시됩니다.
+4. **대중교통**은 네이버가 제안하는 모든 경로를 **최적**·**최소시간**·**최소환승**·**최소도보** 표시와 함께 보여주며, 버스/지하철 필터, 정렬, 시각, 환승, 도보 시간, 요금, 노선 색 막대를 제공합니다. 선택한 경로는 지도에 그려지고 승차 구간(노선, 방면, 승·하차 정류장, 정류장 수, 시각)과 도보 구간을 보여줍니다.
+5. 자동차·도보·자전거의 **상세 경로**에는 회전 안내가 표시됩니다.
 
 휴대폰·태블릿(Home Assistant 컴패니언 앱 포함)에서는 네이버 지도 링크가 네이버 지도 앱으로 열리며, Android에서 앱이 없으면 Play 스토어가 열립니다. 데스크톱에서는 map.naver.com이 열립니다.
 
@@ -130,11 +133,14 @@ data:
   mode: car                         # car | transit | walk | bicycle
   include_geometry: false           # true면 경로선을 geometry로 추가
   include_steps: false              # true면 회전 안내/승차 구간을 steps로 추가
+  include_alternatives: false       # 대중교통: true면 제안 경로 전체를 추가
 response_variable: route
 # route: route_url / mode / duration(초) / distance(m) / arrival_time / legs[]
 #        (include_geometry 시 + geometry: [[위도, 경도], …] 또는 null)
 #        (include_steps 시 + steps: [{instruction, distance, duration, …}] 또는 null;
 #         대중교통은 type, lines, color, headsign, from, to, stops, 시각 추가)
+#        (include_alternatives 시 대중교통 + alternatives: [{duration, distance, transfers, fare,
+#         walking_duration, departure_time, arrival_time, vehicle_types, labels, …}])
 ```
 
 전체 필드는 `custom_components/naver_map/services.yaml`을 참고하세요.

@@ -45,14 +45,17 @@ NCP Maps is a paid service with a monthly free quota; check the current pricing 
 
 Adding the integration puts a **Naver Map** entry in the sidebar (all users, not only admins). It has two tabs.
 
-**Places** — search a place; every result is marked on the map. Pick a result to zoom to it, open it in Naver Map, or send it to the **Directions** tab with **Set as origin** / **Set as destination**.
+On phone widths the map sits above a bottom sheet you can drag between three heights, with the tabs in a bottom bar; on tablets and desktops a side panel with an icon rail sits next to the map.
+
+**Places** — search a place; every result is marked on the map. Pick a result to zoom to it, open it in Naver Map, or send it to the **Directions** tab with **Origin** / **Destination**.
 
 **Directions**
 
-1. Set the **origin** and **destination**: search a place and pick a result, choose a person / zone / device_tracker entity, or press **Pick on map** and click the map.
+1. Set the **origin** and **destination**: search a place and pick a result, choose a person / zone / device_tracker entity, or press **Pick on map** and click the map. The swap button exchanges them.
 2. Choose **Car**, **Transit**, **Walk**, or **Bicycle**.
 3. The route line is drawn on the map with the travel time, distance, and arrival time (plus transfers and fare for transit), and a link opens the same route in Naver Map. Drag a marker to adjust a point; the route is looked up again after a short pause.
-4. **Route details** list each transit ride (line, direction, boarding and alighting stops, stop count, times) and walk, or the turn-by-turn steps for car, walk, and bicycle.
+4. **Transit** lists every route Naver suggests, marked **Best**, **Fastest**, **Fewest transfers**, or **Least walking**, with a bus / subway filter, a sort, times, transfers, walking time, fare, and a line-colored bar of the rides. The selected route is drawn on the map and shows each ride (line, direction, boarding and alighting stops, stop count, times) and walk.
+5. **Route details** for car, walk, and bicycle list the turn-by-turn steps.
 
 On phones and tablets (including the Home Assistant companion apps) the Naver Map links open the Naver Map app; on Android a missing app opens the Play Store. On desktop they open map.naver.com.
 
@@ -129,11 +132,14 @@ data:
   mode: car                         # car | transit | walk | bicycle
   include_geometry: false           # true adds the route line as geometry
   include_steps: false              # true adds turn-by-turn / per-ride steps
+  include_alternatives: false       # transit: true lists every suggested route
 response_variable: route
 # route: route_url / mode / duration(s) / distance(m) / arrival_time / legs[]
 #        (+ geometry: [[latitude, longitude], …] or null with include_geometry)
 #        (+ steps: [{instruction, distance, duration, …}] or null with include_steps;
 #         transit steps add type, lines, color, headsign, from, to, stops, times)
+#        (+ alternatives (transit): [{duration, distance, transfers, fare, walking_duration,
+#         departure_time, arrival_time, vehicle_types, labels, …}] with include_alternatives)
 ```
 
 See `custom_components/naver_map/services.yaml` for all fields.
