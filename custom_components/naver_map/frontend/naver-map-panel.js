@@ -38,6 +38,9 @@ const STRINGS = {
     noEta: "No travel time available",
     straightLine: "Route line unavailable; showing straight segments",
     openInNaver: "Open in Naver Map",
+    steps: "Route details",
+    stops: (n) => `${n} stop${n === 1 ? "" : "s"}`,
+    bound: (headsign) => `toward ${headsign}`,
     loading: "Looking up the route…",
     mapUnavailable:
       "The map component isn't loaded yet. Open the Overview dashboard once, then come back.",
@@ -67,6 +70,9 @@ const STRINGS = {
     noEta: "예상시간 없음",
     straightLine: "경로선을 가져오지 못해 직선으로 표시합니다",
     openInNaver: "네이버 지도에서 열기",
+    steps: "상세 경로",
+    stops: (n) => `${n}개 정류장`,
+    bound: (headsign) => `${headsign} 방면`,
     loading: "경로를 찾는 중…",
     mapUnavailable: "지도 구성요소가 아직 로드되지 않았습니다. 개요 대시보드를 한 번 연 뒤 다시 와 주세요.",
     selected: "지도에서 선택한 지점",
@@ -75,6 +81,9 @@ const STRINGS = {
     won: "원",
   },
 };
+
+const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;
+const MAX_LINES = 3; // bus rides can list many interchangeable lines
 
 const escapeHtml = (text) =>
   String(text ?? "").replace(
@@ -370,6 +379,7 @@ class NaverMapPanel extends HTMLElement {
         destination: pointInput(destination),
         mode: this._mode,
         include_geometry: true,
+        include_steps: true,
       });
       if (requestId !== this._requestId) return; // a newer lookup superseded this one
       this._route = route;
@@ -476,6 +486,15 @@ class NaverMapPanel extends HTMLElement {
     return hours ? `${hours}${t.hour} ${minutes % 60}${t.minute}` : `${minutes}${t.minute}`;
   }
 
+  // Times are shown in Home Assistant's time zone, like the rest of the frontend.
+  _formatTime(iso) {
+    return new Date(iso).toLocaleTimeString(this._hass.language, {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: this._hass.config?.time_zone,
+    });
+  }
+
   _formatDistance(meters) {
     return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${meters} m`;
   }
@@ -527,10 +546,7 @@ class NaverMapPanel extends HTMLElement {
     if (route.duration == null) {
       rows.push(`<p class="muted">${t.noEta}</p>`);
     } else {
-      const arrival = new Date(route.arrival_time).toLocaleTimeString(this._hass.language, {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const arrival = this._formatTime(route.arrival_time);
       rows.push(`<dl>
         <dt>${t.duration}</dt><dd>${this._formatDuration(route.duration)}</dd>
         <dt>${t.distance}</dt><dd>${this._formatDistance(route.distance)}</dd>
@@ -540,6 +556,7 @@ class NaverMapPanel extends HTMLElement {
       </dl>`);
     }
     if (!route.geometry?.length) rows.push(`<p class="muted">${t.straightLine}</p>`);
+    rows.push(this._renderSteps(route));
     rows.push(
       `<a class="open" href="${escapeHtml(route.route_url)}" target="_blank" rel="noopener noreferrer">${t.openInNaver}</a>`
     );
@@ -572,6 +589,40 @@ class NaverMapPanel extends HTMLElement {
       </div>
       ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
       ${places ? `<ul class="results">${places}</ul>` : ""}`;
+  }
+
+  _renderSteps(route) {
+    const t = this._t;
+    const steps = route.steps;
+    if (!steps?.length) return "";
+    if (route.mode !== "transit") {
+      const items = steps
+        .map(
+          (step) =>
+            `<li>${escapeHtml(step.instruction)}${step.distance ? ` <small>${this._formatDistance(step.distance)}</small>` : ""}</li>`
+        )
+        .join("");
+      return `<details class="steps"><summary>${t.steps} (${steps.length})</summary><ol>${items}</ol></details>`;
+    }
+    const items = steps
+      .map((step) => {
+        const time = `${this._formatTime(step.departure_time)}–${this._formatTime(step.arrival_time)}`;
+        if (!step.lines) {
+          return `<li class="walk-step">${escapeHtml(step.instruction)} <small>${this._formatDuration(step.duration)}</small></li>`;
+        }
+        const color = HEX_COLOR.test(step.color || "") ? step.color : "var(--primary-color)";
+        const lines =
+          step.lines.slice(0, MAX_LINES).join(", ") +
+          (step.lines.length > MAX_LINES ? ` +${step.lines.length - MAX_LINES}` : "");
+        return `<li class="ride" style="--line-color:${color}">
+          <span class="badge">${escapeHtml(lines)}</span>
+          ${step.headsign ? `<small>${escapeHtml(t.bound(step.headsign))}</small>` : ""}
+          <div>${escapeHtml(step.from)} → ${escapeHtml(step.to)} <small>${t.stops(step.stops)}</small></div>
+          <small>${time} · ${this._formatDuration(step.duration)}</small>
+        </li>`;
+      })
+      .join("");
+    return `<details class="steps" open><summary>${t.steps}</summary><ol class="transit">${items}</ol></details>`;
   }
 
   _render() {
@@ -640,6 +691,15 @@ const STYLE = `
   dt { color: var(--secondary-text-color); }
   dd { margin: 0; }
   .open { display: inline-block; color: var(--primary-color); }
+  .steps { margin-bottom: 8px; }
+  .steps summary { cursor: pointer; color: var(--secondary-text-color); }
+  .steps ol { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+  .steps small { color: var(--secondary-text-color); }
+  .steps ol.transit { list-style: none; padding-left: 0; gap: 8px; }
+  .ride { border-left: 4px solid var(--line-color); padding-left: 8px; }
+  .walk-step { border-left: 4px dotted var(--divider-color); padding-left: 8px; color: var(--secondary-text-color); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--line-color);
+    color: #fff; font-weight: 600; font-size: 13px; }
   .muted, .hint { color: var(--secondary-text-color); margin: 0; }
   .error { color: var(--error-color); margin: 0; }
   .notice { padding: 24px; color: var(--secondary-text-color); }
