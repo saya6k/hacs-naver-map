@@ -59,6 +59,7 @@ ATTR_ORIGIN = "origin"
 ATTR_DESTINATION = "destination"
 ATTR_WAYPOINTS = "waypoints"
 ATTR_MODE = "mode"
+ATTR_INCLUDE_GEOMETRY = "include_geometry"
 
 NEARBY_CENTER_ROLE = "중심 지점"
 
@@ -87,6 +88,7 @@ GET_DIRECTIONS_SCHEMA = vol.Schema(
         vol.Optional(ATTR_DESTINATION): POINT_INPUT,
         vol.Optional(ATTR_WAYPOINTS, default=list): [POINT_INPUT],
         vol.Optional(ATTR_MODE, default=MODE_CAR): vol.In(DIRECTIONS_MODES),
+        vol.Optional(ATTR_INCLUDE_GEOMETRY, default=False): cv.boolean,
     }
 )
 
@@ -181,7 +183,9 @@ async def async_get_directions(
     ``data`` holds ``ATTR_ORIGIN``/``ATTR_DESTINATION``/``ATTR_WAYPOINTS``/
     ``ATTR_MODE`` (waypoints and mode must already have their defaults
     applied). Shared by the get_directions service and the get_directions
-    LLM tool.
+    LLM tool. ``ATTR_INCLUDE_GEOMETRY`` adds the route line as ``geometry``
+    ([lat, lng] lists, or null when unavailable); the LLM tool never sets it,
+    since a route line would flood the model context.
     """
     waypoints = data[ATTR_WAYPOINTS]
     mode = data[ATTR_MODE]
@@ -238,6 +242,10 @@ async def async_get_directions(
     if isinstance(route, TransitResult):
         response["transfers"] = route.transfers
         response["fare"] = route.fare
+    if data.get(ATTR_INCLUDE_GEOMETRY):
+        response["geometry"] = (
+            [list(point) for point in route.path] if route and route.path else None
+        )
     return response
 
 

@@ -237,3 +237,135 @@ async def test_bike_route_error_body_degrades_to_none(
     aioclient_mock.get(BIKE_ROUTE_URL, json={"error": {"error_code": 2}})
 
     assert await _route_api(hass).async_get_bike_route(ORIGIN, DESTINATION) is None
+
+
+async def test_driving_route_parses_path_as_lat_lng(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Directions 5 `path` ([lng, lat] pairs) becomes [lat, lng] tuples."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 600000, "distance": 4200},
+                        "path": [[127.0276, 37.4979], [127.0364, 37.5006]],
+                    }
+                ]
+            },
+        },
+    )
+
+    route = await _maps_api(hass).async_get_driving_route(ORIGIN, DESTINATION, [])
+
+    assert route is not None
+    assert route.path == [(37.4979, 127.0276), (37.5006, 127.0364)]
+
+
+async def test_transit_route_parses_step_points(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Transit step `points` ({x: lng, y: lat}) are joined in order; steps without points skip."""
+    aioclient_mock.get(
+        TRANSIT_ROUTE_URL,
+        json={
+            "paths": [
+                {
+                    "duration": 50,
+                    "distance": 24700,
+                    "fare": 3200,
+                    "transferCount": 1,
+                    "legs": [
+                        {
+                            "steps": [
+                                {"points": [{"x": 127.0276, "y": 37.4979}]},
+                                {"type": "WALKING"},
+                                {
+                                    "points": [
+                                        {"x": 127.03, "y": 37.499},
+                                        {"x": 127.0364, "y": 37.5006},
+                                    ]
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    route = await _route_api(hass).async_get_transit_route(ORIGIN, DESTINATION)
+
+    assert route is not None
+    assert route.path == [(37.4979, 127.0276), (37.499, 127.03), (37.5006, 127.0364)]
+
+
+async def test_walk_route_parses_step_path_strings(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Walk step `path` strings ("lng,lat lng,lat") are joined; null/empty steps skip."""
+    aioclient_mock.get(
+        WALK_ROUTE_URL,
+        json={
+            "routes": [
+                {
+                    "summary": {"duration": 1047, "distance": 876},
+                    "legs": [
+                        {"steps": [{"path": None}, {"path": "127.0276,37.4979 127.03,37.499"}]},
+                        {"steps": [{"path": ""}, {"path": "127.0364,37.5006"}]},
+                    ],
+                }
+            ]
+        },
+    )
+
+    route = await _route_api(hass).async_get_walk_route([ORIGIN, VIA, DESTINATION])
+
+    assert route is not None
+    assert route.path == [(37.4979, 127.0276), (37.499, 127.03), (37.5006, 127.0364)]
+
+
+async def test_bike_route_parses_step_path_strings(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Bike steps use the same space-separated path strings as walk."""
+    aioclient_mock.get(
+        BIKE_ROUTE_URL,
+        json={
+            "routes": [
+                {
+                    "summary": {"duration": 208, "distance": 821},
+                    "legs": [{"steps": [{"path": "127.0276,37.4979 127.0364,37.5006"}]}],
+                }
+            ]
+        },
+    )
+
+    route = await _route_api(hass).async_get_bike_route(ORIGIN, DESTINATION)
+
+    assert route is not None
+    assert route.path == [(37.4979, 127.0276), (37.5006, 127.0364)]
+
+
+async def test_unreadable_geometry_keeps_eta_with_null_path(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A malformed path drops only the geometry (with a warning); duration/distance stay."""
+    aioclient_mock.get(
+        WALK_ROUTE_URL,
+        json={
+            "routes": [
+                {
+                    "summary": {"duration": 1047, "distance": 876},
+                    "legs": [{"steps": [{"path": "not-a-coordinate"}]}],
+                }
+            ]
+        },
+    )
+
+    route = await _route_api(hass).async_get_walk_route([ORIGIN, DESTINATION])
+
+    assert route == RouteResult(duration=1047, distance=876, path=None)
+    assert "geometry" in caplog.text

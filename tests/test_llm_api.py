@@ -199,6 +199,41 @@ async def test_get_directions_tool_builds_route(
     assert result.data["route_url"].startswith("https://map.naver.com/p/directions/")
 
 
+async def test_get_directions_tool_never_returns_geometry(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The LLM tool omits route geometry even when the lookup returns a path."""
+    await _setup_integration(hass)
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 600000, "distance": 4200},
+                        "path": [[127.0, 37.5], [127.1, 37.4]],
+                    }
+                ]
+            },
+        },
+    )
+    instance = await _get_api_instance(hass)
+
+    result = await instance.async_call_tool(
+        llm.ToolInput(
+            tool_name="naver_map__get_directions",
+            tool_args={
+                "origin": {"latitude": 37.5, "longitude": 127.0},
+                "destination": {"latitude": 37.4, "longitude": 127.1},
+            },
+        )
+    )
+
+    assert result.data["duration"] == 600
+    assert "geometry" not in result.data
+
+
 async def test_get_directions_tool_rejects_too_many_waypoints(hass: HomeAssistant) -> None:
     """get_directions raises a validation error for more than 5 waypoints."""
     await _setup_integration(hass)

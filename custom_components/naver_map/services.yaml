@@ -88,3 +88,7 @@ get_directions:
             - transit
             - walk
             - bicycle
+    include_geometry:
+      default: false
+      selector:
+        boolean:

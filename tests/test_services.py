@@ -361,3 +361,52 @@ async def test_services_removed_on_unload(
     await hass.async_block_till_done()
 
     assert not hass.services.async_services_for_domain(DOMAIN)
+
+
+async def test_get_directions_geometry_only_when_requested(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """include_geometry=true adds `geometry` as [lat, lng] lists; it is absent by default."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 900000, "distance": 12000},
+                        "path": [[126.978, 37.5665], [127.1, 37.4]],
+                    }
+                ]
+            },
+        },
+    )
+    data = {
+        "origin": {"latitude": 37.5665, "longitude": 126.978},
+        "destination": {"latitude": 37.4, "longitude": 127.1},
+    }
+
+    default = await _call(hass, "get_directions", data)
+    with_geometry = await _call(hass, "get_directions", {**data, "include_geometry": True})
+
+    assert "geometry" not in default
+    assert with_geometry["geometry"] == [[37.5665, 126.978], [37.4, 127.1]]
+
+
+async def test_get_directions_geometry_null_without_lookup(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Bicycle with waypoints makes no lookup, so a requested geometry is null."""
+    response = await _call(
+        hass,
+        "get_directions",
+        {
+            "origin": {"latitude": 37.4979, "longitude": 127.0276},
+            "destination": {"latitude": 37.5006, "longitude": 127.0364},
+            "waypoints": [{"latitude": 37.499, "longitude": 127.03}],
+            "mode": "bicycle",
+            "include_geometry": True,
+        },
+    )
+
+    assert response["geometry"] is None

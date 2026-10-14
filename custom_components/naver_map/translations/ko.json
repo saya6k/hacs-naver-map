@@ -79,6 +79,10 @@
         "mode": {
           "name": "이동 수단",
           "description": "car / transit(대중교통) / walk / bicycle."
+        },
+        "include_geometry": {
+          "name": "경로선 포함",
+          "description": "경로선을 `geometry`([위도, 경도] 점 목록)로 함께 반환합니다. 가져오지 못하면 null입니다."
         }
       }
     }
