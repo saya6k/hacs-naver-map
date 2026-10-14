@@ -11,6 +11,7 @@ from homeassistant.helpers.llm import async_register_api
 from .api import NaverMapRouteApi, NaverSearchApi, NcpMapsApi
 from .const import CONF_NCP_KEY, CONF_NCP_KEY_ID, DOMAIN
 from .llm_registration import NaverMapAPI
+from .panel import async_register_panel, async_unregister_panel
 from .services import NaverClients, async_setup_services, async_unload_services
 
 
@@ -30,6 +31,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "unregister_llm": unregister_llm,
     }
     async_setup_services(hass, clients)
+    await async_register_panel(hass)
     return True
 
 
@@ -39,4 +41,5 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if store is not None:
         store["unregister_llm"]()
     async_unload_services(hass)
+    async_unregister_panel(hass)
     return True
