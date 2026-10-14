@@ -30,7 +30,7 @@
     },
     "search_nearby": {
       "name": "주변 검색",
-      "description": "중심 지점 주변에서 카테고리 또는 키워드로 장소를 검색해 거리순 상위 5건까지 반환합니다.",
+      "description": "중심 지점 주변에서 카테고리 또는 키워드로 장소를 검색해 거리순 최대 10건을 반환합니다(가능하면 네이버 플레이스 ID 포함).",
       "fields": {
         "center": {
           "name": "중심 지점",
@@ -60,6 +60,46 @@
         }
       }
     },
+    "get_place_details": {
+      "name": "장소 상세 정보",
+      "description": "네이버 플레이스 요약을 조회합니다: 영업 상태, 방문자·블로그 리뷰 수, 사진, 예약·주문·배달·네이버페이 여부, 네이버 지도 장소 링크. 네이버 지도의 비공개 웹 API를 사용합니다(best-effort).",
+      "fields": {
+        "query": {
+          "name": "장소 이름",
+          "description": "조회할 장소 이름(예: search_place 결과의 place_name). 장소 ID 대신 사용합니다."
+        },
+        "near": {
+          "name": "기준 지점",
+          "description": "올바른 지점을 고르기 위한 장소 근처의 엔티티 또는 위도/경도. 기본값은 집 위치입니다."
+        },
+        "place_id": {
+          "name": "장소 ID",
+          "description": "네이버 플레이스 ID(예: 이전 응답의 place_id). 장소 이름 대신 사용합니다."
+        }
+      }
+    },
+    "get_transit_arrivals": {
+      "name": "대중교통 실시간 도착",
+      "description": "버스 정류장이나 지하철역의 실시간 도착 정보를 반환합니다: 노선별 다음 차량의 도착 시각, 남은 시간, (버스) 남은 정류장·혼잡도·저상 여부. 네이버 지도의 비공개 웹 API를 사용합니다(best-effort).",
+      "fields": {
+        "type": {
+          "name": "종류",
+          "description": "bus 또는 subway."
+        },
+        "stop_id": {
+          "name": "정류장 ID",
+          "description": "네이버 버스 정류장 ID 또는 (노선별) 지하철역 ID. 예: get_directions 대중교통 단계의 stop_id."
+        },
+        "route_ids": {
+          "name": "노선 ID",
+          "description": "이 노선만 표시합니다. 예: 대중교통 단계의 route_ids."
+        },
+        "direction": {
+          "name": "방향",
+          "description": "지하철 전용: up 또는 down. 예: 대중교통 단계의 way."
+        }
+      }
+    },
     "get_directions": {
       "name": "길찾기",
       "description": "출발지와 도착지(선택적 경유지 포함) 사이의 네이버 지도 경로 링크와 구간별 지점, best-effort 소요시간·거리를 반환합니다.",
@@ -79,11 +119,35 @@
         "mode": {
           "name": "이동 수단",
           "description": "car / transit(대중교통) / walk / bicycle."
+        },
+        "include_geometry": {
+          "name": "경로선 포함",
+          "description": "경로선을 `geometry`([위도, 경도] 점 목록)로 함께 반환합니다. 가져오지 못하면 null입니다."
+        },
+        "include_steps": {
+          "name": "경로 세부 단계 포함",
+          "description": "`steps`를 함께 반환합니다: 회전 안내, 대중교통은 도보·승차 구간별 노선·정류장·시각. 가져오지 못하면 null입니다."
+        },
+        "include_alternatives": {
+          "name": "다른 경로 포함",
+          "description": "대중교통 전용: 네이버가 제안하는 모든 경로를 `alternatives`로 함께 반환합니다. 각 경로에 라벨(best·minimum_duration·minimum_transfer·minimum_walking), 교통수단, 도보 시간, 요금이 포함됩니다. 다른 이동수단은 null입니다."
         }
       }
     }
   },
   "selector": {
+    "transit_type": {
+      "options": {
+        "bus": "버스",
+        "subway": "지하철"
+      }
+    },
+    "transit_direction": {
+      "options": {
+        "up": "상행",
+        "down": "하행"
+      }
+    },
     "mode": {
       "options": {
         "car": "자동차",
@@ -139,6 +203,9 @@
     },
     "nearby_input": {
       "message": "주변 검색은 카테고리 또는 검색어 중 정확히 하나만 지정해야 합니다."
+    },
+    "place_input": {
+      "message": "장소 이름(query)과 장소 ID 중 정확히 하나를 지정하세요."
     },
     "transit_no_waypoints": {
       "message": "대중교통 경로는 경유지를 지원하지 않습니다. 경유지를 제거하거나 다른 모드를 선택하세요."

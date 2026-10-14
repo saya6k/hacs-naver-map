@@ -30,7 +30,7 @@
     },
     "search_nearby": {
       "name": "Search nearby",
-      "description": "Searches for places of a category or keyword around a center point, returning up to 5 results ordered by distance.",
+      "description": "Searches for places of a category or keyword around a center point, returning up to 10 results ordered by distance, each with its Naver Place ID when available.",
       "fields": {
         "center": {
           "name": "Center",
@@ -60,6 +60,46 @@
         }
       }
     },
+    "get_place_details": {
+      "name": "Get place details",
+      "description": "Looks up a place's Naver Place summary: the business-hours status, visitor and blog review counts, photos, booking/order/delivery/Naver Pay availability, and a link to the place in Naver Map. Uses Naver Map's undocumented web API (best effort).",
+      "fields": {
+        "query": {
+          "name": "Place name",
+          "description": "Name of the place to look up, e.g. a search_place result's place_name. Use this or a place ID."
+        },
+        "near": {
+          "name": "Near",
+          "description": "An entity or a latitude/longitude value near the place, to pick the right branch. Defaults to the home location."
+        },
+        "place_id": {
+          "name": "Place ID",
+          "description": "Naver Place ID, e.g. from a previous response. Use this or a place name."
+        }
+      }
+    },
+    "get_transit_arrivals": {
+      "name": "Get transit arrivals",
+      "description": "Returns realtime arrivals at a bus stop or a subway station: for each line its next vehicles with arrival time, remaining time, and (bus) remaining stops, crowding, and low-floor flag. Uses Naver Map's undocumented web API (best effort).",
+      "fields": {
+        "type": {
+          "name": "Type",
+          "description": "bus or subway."
+        },
+        "stop_id": {
+          "name": "Stop ID",
+          "description": "Naver bus stop ID or subway station ID (one per line), e.g. a get_directions transit step's stop_id."
+        },
+        "route_ids": {
+          "name": "Route IDs",
+          "description": "Only these lines, e.g. a transit step's route_ids."
+        },
+        "direction": {
+          "name": "Direction",
+          "description": "Subway only: up or down, e.g. a transit step's way."
+        }
+      }
+    },
     "get_directions": {
       "name": "Get directions",
       "description": "Builds a Naver Map route link between an origin and destination (with optional waypoints) and returns the per-leg points plus a best-effort travel time and distance.",
@@ -79,11 +119,35 @@
         "mode": {
           "name": "Travel mode",
           "description": "car, transit (public transit), walk, or bicycle."
+        },
+        "include_geometry": {
+          "name": "Include route line",
+          "description": "Also return the route line as `geometry` ([latitude, longitude] points), or null when it is unavailable."
+        },
+        "include_steps": {
+          "name": "Include route steps",
+          "description": "Also return `steps`: turn-by-turn directions, or for public transit each walk and ride with its lines, stations, and times; null when unavailable."
+        },
+        "include_alternatives": {
+          "name": "Include alternative routes",
+          "description": "Public transit only: also return every route Naver suggests as `alternatives`, each with its labels (best, minimum_duration, minimum_transfer, minimum_walking), vehicle types, walking time, and fare. Null for other modes."
         }
       }
     }
   },
   "selector": {
+    "transit_type": {
+      "options": {
+        "bus": "Bus",
+        "subway": "Subway"
+      }
+    },
+    "transit_direction": {
+      "options": {
+        "up": "Up",
+        "down": "Down"
+      }
+    },
     "mode": {
       "options": {
         "car": "Car",
@@ -139,6 +203,9 @@
     },
     "nearby_input": {
       "message": "Provide exactly one of category or query for the nearby search."
+    },
+    "place_input": {
+      "message": "Provide exactly one of a place name (query) or a place ID."
     },
     "transit_no_waypoints": {
       "message": "Public transit routes do not support waypoints. Remove the waypoints or choose another mode."

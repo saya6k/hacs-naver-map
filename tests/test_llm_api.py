@@ -12,6 +12,7 @@ from custom_components.naver_map.const import (
     DOMAIN,
     DRIVING_URL,
     GEOCODE_URL,
+    INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
     REVERSE_GEOCODE_URL,
 )
@@ -125,6 +126,7 @@ async def test_search_nearby_tool_by_category(
     hass.states.async_set(
         "zone.home", "zoning", {"latitude": 37.3935, "longitude": 127.1112, "friendly_name": "집"}
     )
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)  # official-API fallback
     aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
     instance = await _get_api_instance(hass)
@@ -197,6 +199,44 @@ async def test_get_directions_tool_builds_route(
     assert result.data["mode"] == "car"
     assert result.data["duration"] is None
     assert result.data["route_url"].startswith("https://map.naver.com/p/directions/")
+
+
+async def test_get_directions_tool_never_returns_geometry(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The LLM tool omits route geometry and steps even when the lookup returns them."""
+    await _setup_integration(hass)
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 600000, "distance": 4200},
+                        "path": [[127.0, 37.5], [127.1, 37.4]],
+                        "guide": [{"instructions": "우회전", "distance": 300, "duration": 60000}],
+                    }
+                ]
+            },
+        },
+    )
+    instance = await _get_api_instance(hass)
+
+    result = await instance.async_call_tool(
+        llm.ToolInput(
+            tool_name="naver_map__get_directions",
+            tool_args={
+                "origin": {"latitude": 37.5, "longitude": 127.0},
+                "destination": {"latitude": 37.4, "longitude": 127.1},
+            },
+        )
+    )
+
+    assert result.data["duration"] == 600
+    assert "geometry" not in result.data
+    assert "steps" not in result.data
+    assert "alternatives" not in result.data
 
 
 async def test_get_directions_tool_rejects_too_many_waypoints(hass: HomeAssistant) -> None:

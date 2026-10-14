@@ -11,15 +11,29 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.naver_map.const import (
     BIKE_ROUTE_URL,
+    BUS_ARRIVALS_URL,
     DOMAIN,
     DRIVING_URL,
     GEOCODE_URL,
+    INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
+    PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
+    SUBWAY_ARRIVALS_URL,
     TRANSIT_ROUTE_URL,
     WALK_ROUTE_URL,
 )
-from tests.const import ADDRESS_ITEM, ENTRY_DATA, REGION_RESPONSE, STARBUCKS_ITEM
+from tests.const import (
+    ADDRESS_ITEM,
+    BUS_ARRIVALS_RESPONSE,
+    CAPTCHA_RESPONSE,
+    ENTRY_DATA,
+    INSTANT_SEARCH_RESPONSE,
+    PLACE_SUMMARY_RESPONSE,
+    REGION_RESPONSE,
+    STARBUCKS_ITEM,
+    SUBWAY_ARRIVALS_RESPONSE,
+)
 from tests.vendor.aiohttp_mock import AiohttpClientMocker
 from tests.vendor.ha_common import MockConfigEntry
 
@@ -85,10 +99,42 @@ async def test_search_place_api_error(
     assert err.value.translation_key == "api_error"
 
 
+async def test_search_nearby_uses_autocomplete_near_center(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Autocomplete around the center gives place ids; far results drop, near sort first."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+
+    response = await _call(
+        hass,
+        "search_nearby",
+        {"center": {"latitude": 37.4979, "longitude": 127.0276}, "category": "cafe", "radius": 100},
+    )
+
+    assert response["results"] == [
+        {
+            "place_name": "스타벅스 강남R점",
+            "latitude": 37.497711,
+            "longitude": 127.028439,
+            "address": "",
+            "road_address": "서울특별시 강남구 강남대로 390 (역삼동)",
+            "map_url": "https://map.naver.com/p/entry/place/1086067689",
+            "category_name": "카페",
+            "place_id": "1086067689",
+            "distance": 77,
+        }
+    ]
+    url = aioclient_mock.mock_calls[0][1]
+    assert url.query["query"] == "카페"
+    assert url.query["coords"] == "37.4979,127.0276"
+    assert aioclient_mock.call_count == 1  # no official-API fallback
+
+
 async def test_search_nearby_prefixes_region_filters_and_sorts(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """The keyword is prefixed with the center's region; far results drop, near sort first."""
+    """Fallback: the keyword is prefixed with the center's region; far drop, near sort first."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)
     aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
     aioclient_mock.get(
         LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM, FAR_ITEM, NEAR_ITEM]}
@@ -100,27 +146,29 @@ async def test_search_nearby_prefixes_region_filters_and_sorts(
 
     assert [r["place_name"] for r in response["results"]] == ["스타벅스 삼평점", "스타벅스 판교점"]
     assert [r["distance"] for r in response["results"]] == [22, 111]
-    search_url = aioclient_mock.mock_calls[1][1]
+    search_url = aioclient_mock.mock_calls[2][1]
     assert search_url.query["query"] == "성남시 분당구 삼평동 카페"
 
 
 async def test_search_nearby_by_query_without_region(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """With no region for the center, the bare query is searched."""
+    """Fallback: with no region for the center, the bare query is searched."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=CAPTCHA_RESPONSE)
     aioclient_mock.get(REVERSE_GEOCODE_URL, json={"status": {"code": 3}, "results": []})
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
 
     response = await _call(hass, "search_nearby", {"center": CENTER, "query": "스타벅스"})
 
     assert len(response["results"]) == 1
-    assert aioclient_mock.mock_calls[1][1].query["query"] == "스타벅스"
+    assert aioclient_mock.mock_calls[2][1].query["query"] == "스타벅스"
 
 
 async def test_search_nearby_all_outside_radius(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """When every result is outside the radius, no_results is raised."""
+    """Fallback: when every result is outside the radius, no_results is raised."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)
     aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [FAR_ITEM]})
 
@@ -361,3 +409,352 @@ async def test_services_removed_on_unload(
     await hass.async_block_till_done()
 
     assert not hass.services.async_services_for_domain(DOMAIN)
+
+
+async def test_get_directions_geometry_only_when_requested(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """include_geometry=true adds `geometry` as [lat, lng] lists; it is absent by default."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 900000, "distance": 12000},
+                        "path": [[126.978, 37.5665], [127.1, 37.4]],
+                    }
+                ]
+            },
+        },
+    )
+    data = {
+        "origin": {"latitude": 37.5665, "longitude": 126.978},
+        "destination": {"latitude": 37.4, "longitude": 127.1},
+    }
+
+    default = await _call(hass, "get_directions", data)
+    with_geometry = await _call(hass, "get_directions", {**data, "include_geometry": True})
+
+    assert "geometry" not in default
+    assert with_geometry["geometry"] == [[37.5665, 126.978], [37.4, 127.1]]
+
+
+async def test_get_directions_geometry_null_without_lookup(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Bicycle with waypoints makes no lookup, so a requested geometry is null."""
+    response = await _call(
+        hass,
+        "get_directions",
+        {
+            "origin": {"latitude": 37.4979, "longitude": 127.0276},
+            "destination": {"latitude": 37.5006, "longitude": 127.0364},
+            "waypoints": [{"latitude": 37.499, "longitude": 127.03}],
+            "mode": "bicycle",
+            "include_geometry": True,
+        },
+    )
+
+    assert response["geometry"] is None
+
+
+async def test_get_directions_steps_only_when_requested(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """include_steps=true adds `steps`; it is absent by default."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 900000, "distance": 12000},
+                        "guide": [{"instructions": "우회전", "distance": 300, "duration": 60000}],
+                    }
+                ]
+            },
+        },
+    )
+    data = {
+        "origin": {"latitude": 37.5665, "longitude": 126.978},
+        "destination": {"latitude": 37.4, "longitude": 127.1},
+    }
+
+    default = await _call(hass, "get_directions", data)
+    with_steps = await _call(hass, "get_directions", {**data, "include_steps": True})
+
+    assert "steps" not in default
+    assert with_steps["steps"] == [{"instruction": "우회전", "distance": 300, "duration": 60}]
+
+
+async def test_get_directions_transit_alternatives_only_when_requested(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """include_alternatives lists every transit route; the top level stays the first one."""
+    aioclient_mock.get(
+        TRANSIT_ROUTE_URL,
+        json={
+            "paths": [
+                {
+                    "duration": 36,
+                    "distance": 10000,
+                    "fare": 1650,
+                    "transferCount": 2,
+                    "walkingDuration": 12,
+                    "vehicleTypes": ["SUBWAY"],
+                    "pathLabels": [{"labelCode": "BEST"}],
+                    "legs": [{"steps": [{"points": [{"x": 127.0, "y": 37.5}]}]}],
+                },
+                {
+                    "duration": 50,
+                    "distance": 9000,
+                    "fare": 1500,
+                    "transferCount": 0,
+                    "vehicleTypes": ["BUS"],
+                    "pathLabels": [{"labelCode": "MINIMUM_TRANSFER"}],
+                },
+            ]
+        },
+    )
+    data = {
+        "origin": {"latitude": 37.5665, "longitude": 126.978},
+        "destination": {"latitude": 37.3945, "longitude": 127.1112},
+        "mode": "transit",
+    }
+
+    default = await _call(hass, "get_directions", data)
+    response = await _call(
+        hass, "get_directions", {**data, "include_alternatives": True, "include_geometry": True}
+    )
+
+    assert "alternatives" not in default
+    assert response["duration"] == 2160
+    first, second = response["alternatives"]
+    assert first["labels"] == ["best"]
+    assert first["geometry"] == [[37.5, 127.0]]
+    assert first["walking_duration"] == 720
+    assert second == {
+        "duration": 3000,
+        "distance": 9000,
+        "transfers": 0,
+        "fare": 1500,
+        "walking_duration": None,
+        "departure_time": None,
+        "arrival_time": None,
+        "vehicle_types": ["bus"],
+        "labels": ["minimum_transfer"],
+        "geometry": None,
+    }
+
+
+async def test_get_directions_alternatives_null_for_other_modes(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Only transit has alternative routes; other modes report null."""
+    aioclient_mock.get(
+        WALK_ROUTE_URL, json={"routes": [{"summary": {"duration": 1047, "distance": 876}}]}
+    )
+
+    response = await _call(
+        hass,
+        "get_directions",
+        {
+            "origin": {"latitude": 37.4979, "longitude": 127.0276},
+            "destination": {"latitude": 37.5006, "longitude": 127.0364},
+            "mode": "walk",
+            "include_alternatives": True,
+        },
+    )
+
+    assert response["alternatives"] is None
+
+
+PLACE_DETAILS = {
+    "place_id": "1086067689",
+    "place_name": "스타벅스 강남R점",
+    "category": "카페",
+    "address": "서울 강남구 역삼동 825",
+    "road_address": "서울 강남구 강남대로 390 (역삼동)",
+    "latitude": 37.497711,
+    "longitude": 127.028439,
+    "business_hours": "22:00에 영업 종료",
+    "visitor_review_count": 8266,
+    "blog_review_count": 1064,
+    "images": ["https://ldb-phinf.pstatic.net/a.png", "https://ldb-phinf.pstatic.net/b.jpg"],
+    "booking": False,
+    "order": True,
+    "delivery": False,
+    "naver_pay": True,
+    "place_url": "https://map.naver.com/p/entry/place/1086067689",
+}
+
+
+async def test_get_place_details_by_query_matches_name_near_point(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A query resolves to the exactly named place near `near`, then its summary."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+
+    response = await _call(
+        hass,
+        "get_place_details",
+        {"query": "스타벅스 강남R점", "near": {"latitude": 37.4979, "longitude": 127.0276}},
+    )
+
+    assert response == PLACE_DETAILS
+    assert aioclient_mock.mock_calls[0][1].query["coords"] == "37.4979,127.0276"
+
+
+async def test_get_place_details_query_defaults_to_home_and_first_result(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Without `near` the home location is used; with no exact name, Naver's first pick."""
+    hass.config.latitude, hass.config.longitude = 37.5665, 126.978
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+
+    response = await _call(hass, "get_place_details", {"query": "강남 스타벅스"})
+
+    assert response["place_id"] == "1086067689"
+    assert aioclient_mock.mock_calls[0][1].query["coords"] == "37.5665,126.978"
+
+
+async def test_get_place_details_by_place_id(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A place_id skips the autocomplete lookup."""
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+
+    response = await _call(hass, "get_place_details", {"place_id": "1086067689"})
+
+    assert response == PLACE_DETAILS
+    assert aioclient_mock.call_count == 1
+
+
+async def test_get_place_details_requires_exactly_one_of_query_or_place_id(
+    hass: HomeAssistant,
+) -> None:
+    """Neither (or both) of query/place_id is a validation error."""
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, "get_place_details", {})
+
+    assert err.value.translation_key == "place_input"
+
+
+async def test_get_place_details_no_match(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """An autocomplete answer without places raises no_results."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json={"ac": [], "place": []})
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, "get_place_details", {"query": "없는장소"})
+
+    assert err.value.translation_key == "no_results"
+
+
+async def test_get_place_details_blocked_lookup_is_api_error(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A CAPTCHA-gated (or otherwise unreadable) lookup raises api_error."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=CAPTCHA_RESPONSE)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _call(hass, "get_place_details", {"query": "스타벅스"})
+
+    assert err.value.translation_key == "api_error"
+
+
+async def test_get_transit_arrivals_bus_filters_routes(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Bus arrivals list each requested line with its next buses."""
+    aioclient_mock.get(BUS_ARRIVALS_URL, json=BUS_ARRIVALS_RESPONSE)
+
+    response = await _call(
+        hass,
+        "get_transit_arrivals",
+        {"type": "bus", "stop_id": "106041", "route_ids": ["6025"]},
+    )
+
+    assert response == {
+        "arrivals": [
+            {
+                "route_id": "6025",
+                "line": "917",
+                "color": "#87C700",
+                "direction": "논현역",
+                "running": True,
+                "vehicles": [
+                    {
+                        "arrival_time": "2026-10-14T17:29:44+09:00",
+                        "remaining_time": 120,
+                        "remaining_stops": 2,
+                        "congestion": "여유",
+                        "low_floor": True,
+                        "last": False,
+                    },
+                    {
+                        "arrival_time": "2026-10-14T17:42:44+09:00",
+                        "remaining_time": 900,
+                        "remaining_stops": 9,
+                        "congestion": None,
+                        "low_floor": False,
+                        "last": True,
+                    },
+                ],
+            }
+        ]
+    }
+
+
+async def test_get_transit_arrivals_bus_ended_line(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A line that stopped running for the day is listed with no vehicles."""
+    aioclient_mock.get(BUS_ARRIVALS_URL, json=BUS_ARRIVALS_RESPONSE)
+
+    response = await _call(hass, "get_transit_arrivals", {"type": "bus", "stop_id": "106041"})
+
+    ended = response["arrivals"][1]
+    assert (ended["line"], ended["running"], ended["vehicles"]) == ("3100N", False, [])
+
+
+async def test_get_transit_arrivals_subway_direction(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Subway arrivals are split by direction; `direction` keeps one side."""
+    aioclient_mock.get(SUBWAY_ARRIVALS_URL, json=SUBWAY_ARRIVALS_RESPONSE)
+
+    response = await _call(
+        hass, "get_transit_arrivals", {"type": "subway", "stop_id": "222", "direction": "down"}
+    )
+
+    [down] = response["arrivals"]
+    assert {key: down[key] for key in ("route_id", "line", "color", "direction", "way")} == {
+        "route_id": "2",
+        "line": "2호선",
+        "color": "#3cb44a",
+        "direction": "내선순환",
+        "way": "down",
+    }
+    [train] = down["vehicles"]
+    assert train["arrival_time"] == "2099-01-01T08:05:00+09:00"
+    assert train["remaining_time"] > 0
+    assert (train["headsign"], train["express"], train["last"]) == ("성수", True, True)
+
+
+async def test_get_transit_arrivals_unreadable_is_api_error(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A failed or unexpected arrivals answer raises api_error."""
+    aioclient_mock.get(SUBWAY_ARRIVALS_URL, json={"error": "blocked"})
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _call(hass, "get_transit_arrivals", {"type": "subway", "stop_id": "222"})
+
+    assert err.value.translation_key == "api_error"

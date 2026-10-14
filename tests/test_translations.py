@@ -14,11 +14,13 @@ import re
 from pathlib import Path
 
 import pytest
+import yaml
 
 from custom_components.naver_map.const import DIRECTIONS_MODES
 
 PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
-TRANSLATIONS = Path(__file__).parent.parent / "custom_components" / "naver_map" / "translations"
+COMPONENT = Path(__file__).parent.parent / "custom_components" / "naver_map"
+TRANSLATIONS = COMPONENT / "translations"
 
 
 def _iter_strings(obj: object) -> list[str]:
@@ -50,3 +52,16 @@ def test_mode_selector_options_cover_all_modes(name: str) -> None:
     options = data["selector"]["mode"]["options"]
     assert set(options) == set(DIRECTIONS_MODES)
     assert all(label for label in options.values())
+
+
+@pytest.mark.parametrize("name", ["en", "ko"])
+def test_every_service_field_is_translated(name: str) -> None:
+    """Each services.yaml field has a name and description in the translation file."""
+    services = yaml.safe_load((COMPONENT / "services.yaml").read_text(encoding="utf-8"))
+    data = json.loads((TRANSLATIONS / f"{name}.json").read_text(encoding="utf-8"))
+    for service, spec in services.items():
+        fields = data["services"][service]["fields"]
+        for field in spec.get("fields", {}):
+            label = f"{name}.json: {service}.{field}"
+            assert fields[field]["name"], f"{label} has no name"
+            assert fields[field]["description"], f"{label} has no description"

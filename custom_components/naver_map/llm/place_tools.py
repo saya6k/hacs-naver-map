@@ -81,7 +81,7 @@ class SearchNearbyTool(BaseNaverTool):
         "Search Naver Map for places of a category or keyword within a "
         "radius of a center point (an entity_id like a zone/person/"
         "device_tracker, or a latitude/longitude). Pass exactly one of "
-        "category or query. Returns up to 5 matches ordered by distance."
+        "category or query. Returns up to 10 matches ordered by distance."
     )
     parameters = vol.Schema(
         {
