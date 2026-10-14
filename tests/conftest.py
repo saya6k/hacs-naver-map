@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator, Generator
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiohttp.resolver import AsyncResolver
 from homeassistant import loader
+from homeassistant.components.http.server import HomeAssistantHTTP
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import frame
 
@@ -22,6 +23,17 @@ async def mock_zeroconf_resolver() -> AsyncGenerator[None]:
     with patch(
         "homeassistant.helpers.aiohttp_client._async_make_resolver",
         return_value=AsyncResolver(),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def mock_http_server() -> Generator[None]:
+    """Keep the http component (a panel dependency) from binding a real port."""
+    with (
+        patch.object(HomeAssistantHTTP, "async_bind", AsyncMock()),
+        patch.object(HomeAssistantHTTP, "start", AsyncMock()),
+        patch.object(HomeAssistantHTTP, "stop", AsyncMock()),
     ):
         yield
 
