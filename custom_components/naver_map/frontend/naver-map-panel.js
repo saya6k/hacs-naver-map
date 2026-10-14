@@ -17,6 +17,13 @@ const ICONS = {
   saved: "mdi:star",
   save: "mdi:star-outline",
   delete: "mdi:delete-outline",
+  edit: "mdi:pencil",
+  done: "mdi:check",
+  folder: "mdi:folder",
+  folderOpen: "mdi:folder-open",
+  folderNew: "mdi:folder-plus-outline",
+  drag: "mdi:drag",
+  zone: "mdi:map-marker-radius",
   car: "mdi:car",
   transit: "mdi:bus",
   walk: "mdi:walk",
@@ -61,10 +68,14 @@ const COLORS = {
   activePlace: "#ff7a00",
   here: "#1a73e8",
 };
-// Saving a place creates a passive zone: an ordinary HA entity that maps,
-// automations and get_directions can use, and that presence detection ignores.
+// Saved places are each user's own favorites, kept with folders in the user's
+// frontend data (any user, synced across their devices). Zones appear in the
+// same tree. An administrator can turn a favorite into a passive zone: an HA
+// entity that automations and get_directions can use and presence ignores.
+const SAVED_KEY = "naver_map_saved";
 const SAVED_ZONE = { icon: "mdi:star", radius: 50, passive: true };
-const SAME_PLACE_DEG = 0.0005; // ~50 m: a zone this close with the same name is the saved place
+const SAME_PLACE_DEG = 0.0005; // ~50 m: the same name this close is the same place
+const PERSIST_DELAY = 400; // ms; batches rapid edits into one user-data write
 const REALTIME_MAX_AGE = 60000; // ms; arrivals are re-read on selection after this
 const LOCATE_TIMEOUT = 8000; // ms to wait for the device position
 const START_ZOOM = 15;
@@ -90,8 +101,18 @@ const STRINGS = {
     savedLabel: "Saved",
     remove: "Remove",
     confirmRemove: "Tap again to remove",
-    savedEmpty: "Save places from the Places tab with ☆ Save. They become Home Assistant zones.",
-    savedEmptyUser: "Places an administrator saves (as zones) appear here.",
+    savedEmpty: "Save places from the Places tab with ☆ Save.",
+    edit: "Edit",
+    done: "Done",
+    newFolder: "New folder",
+    folderName: "Folder name",
+    deleteFolder: "Delete folder (its places move out)",
+    moveTo: "Move to",
+    noFolder: "No folder",
+    makeZone: "Make HA zone",
+    zone: "Zone",
+    items: (n) => `${n}`,
+    dragHint: "Drag ≡ to reorder or drop onto a folder",
     setOrigin: "Origin",
     setDestination: "Destination",
     origin: "Origin",
@@ -175,8 +196,18 @@ const STRINGS = {
     savedLabel: "저장됨",
     remove: "삭제",
     confirmRemove: "한 번 더 누르면 삭제",
-    savedEmpty: "장소 검색에서 ☆ 저장을 누르면 여기에 모입니다. 저장한 장소는 Home Assistant 구역(zone)이 됩니다.",
-    savedEmptyUser: "관리자가 저장한 장소(구역)가 여기에 표시됩니다.",
+    savedEmpty: "장소 검색에서 ☆ 저장을 누르면 여기에 모입니다.",
+    edit: "편집",
+    done: "완료",
+    newFolder: "새 폴더",
+    folderName: "폴더 이름",
+    deleteFolder: "폴더 삭제(안의 장소는 밖으로)",
+    moveTo: "이동",
+    noFolder: "폴더 없음",
+    makeZone: "HA 구역으로",
+    zone: "구역",
+    items: (n) => `${n}`,
+    dragHint: "≡를 끌어 순서를 바꾸거나 폴더 위에 놓으세요",
     setOrigin: "출발",
     setDestination: "도착",
     origin: "출발",
@@ -302,6 +333,8 @@ function distanceMeters([lat1, lng1], [lat2, lng2]) {
 }
 
 const realtimeKey = (step) => `${step.type}:${step.stop_id}:${step.way || ""}`;
+// crypto.randomUUID needs a secure context, which HA over plain http lacks.
+const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 const placeKey = (place) => `${place.place_name}|${place.latitude}|${place.longitude}`;
 const vehicleKey = (route) => [...(route.vehicle_types || [])].sort().join("+");
 
@@ -358,7 +391,10 @@ class NaverMapPanel extends HTMLElement {
     this._compact = false;
     this._zonesKey = "";
     this._realtime = {}; // get_transit_arrivals results by boarding stop
-    this._confirmRemove = null; // zone entity_id waiting for a second tap
+    this._confirmRemove = null; // saved node id waiting for a second tap
+    this._saved = null; // favorites tree from user data; null until loaded
+    this._editing = false;
+    this._drag = null;
     this._here = null; // device position [lat, lng], when the browser shares it
     this._sheet = "peek";
   }
@@ -377,6 +413,7 @@ class NaverMapPanel extends HTMLElement {
       .join(",");
     const zonesChanged = zonesKey !== this._zonesKey;
     this._zonesKey = zonesKey;
+    if (first) this._loadSaved();
     if (first && this.isConnected) this._render();
     else if (zonesChanged && this._tab !== "route") {
       this._render();
@@ -430,6 +467,7 @@ class NaverMapPanel extends HTMLElement {
       else this._search(query);
     });
     this._setUpSheetDrag(this._root.querySelector(".handle"));
+    this._setUpDrag(this._content);
     new ResizeObserver(() => this._onResize()).observe(this);
     customElements.whenDefined("ha-menu-button").then(() => {
       this._menuButton = document.createElement("ha-menu-button");
@@ -703,15 +741,22 @@ class NaverMapPanel extends HTMLElement {
   }
 
   _drawSaved() {
-    const zones = this._savedZones();
     this._map.paths = [];
-    this._map.editableLocations = this._hereMarkers();
-    if (zones.length) {
-      this._map.fitBounds(
-        zones.map((s) => [s.attributes.latitude, s.attributes.longitude]),
-        { pad: 0.3, zoom: 15 }
-      );
-    }
+    const leaves = this._savedLeaves();
+    this._map.editableLocations = [
+      ...this._hereMarkers(),
+      ...leaves
+        .filter((leaf) => leaf.kind === "place")
+        .map((leaf) => ({
+          id: `saved-${leaf.id}`,
+          location: [leaf.latitude, leaf.longitude],
+          title: leaf.name,
+          element: this._markerElement("activePlace", leaf.id),
+          elementSize: 20,
+        })),
+    ];
+    const points = leaves.map((leaf) => this._leafLocation(leaf)).filter(Boolean);
+    if (points.length) this._map.fitBounds(points, { pad: 0.3, zoom: 15 });
   }
 
   // Zones with coordinates: home first, then the rest by name.
@@ -739,45 +784,271 @@ class NaverMapPanel extends HTMLElement {
     );
   }
 
-  async _savePlace(place) {
-    this._error = null;
+  // --- favorites tree ------------------------------------------------------
+
+  async _loadSaved() {
     try {
-      await this._hass.callWS({
-        type: "zone/create",
+      const result = await this._hass.callWS({ type: "frontend/get_user_data", key: SAVED_KEY });
+      this._saved = result?.value?.tree || [];
+    } catch (err) {
+      console.warn("[naver-map-panel] could not load saved places:", err);
+      this._saved = [];
+    }
+    if (this._tab !== "route") {
+      this._render();
+      this._drawMap();
+    }
+  }
+
+  // The stored tree, with removed zones dropped and zones not filed yet appended.
+  _savedTree() {
+    const zones = this._savedZones();
+    const known = new Set(zones.map((s) => s.entity_id));
+    const keep = (leaf) => leaf.kind !== "zone" || known.has(leaf.entity_id);
+    const tree = (this._saved || [])
+      .map((node) =>
+        node.kind === "folder" ? { ...node, children: node.children.filter(keep) } : node
+      )
+      .filter((node) => node.kind === "folder" || keep(node));
+    const filed = new Set(
+      tree.flatMap((node) => (node.kind === "folder" ? node.children : [node]))
+        .filter((leaf) => leaf.kind === "zone")
+        .map((leaf) => leaf.entity_id)
+    );
+    for (const state of zones) {
+      if (!filed.has(state.entity_id)) {
+        tree.push({ kind: "zone", id: `zone:${state.entity_id}`, entity_id: state.entity_id });
+      }
+    }
+    return tree;
+  }
+
+  _savedLeaves() {
+    return this._savedTree().flatMap((node) => (node.kind === "folder" ? node.children : [node]));
+  }
+
+  // Apply an edit to the (reconciled) tree and write it to the user's data.
+  _updateSaved(mutate) {
+    const tree = structuredClone(this._savedTree());
+    mutate(tree);
+    this._saved = tree;
+    this._render();
+    this._drawMap();
+    clearTimeout(this._persistTimer);
+    this._persistTimer = setTimeout(() => {
+      this._hass
+        .callWS({ type: "frontend/set_user_data", key: SAVED_KEY, value: { version: 1, tree } })
+        .catch((err) => {
+          this._error = err.message || String(err);
+          this._render();
+        });
+    }, PERSIST_DELAY);
+  }
+
+  _leafName(leaf) {
+    if (leaf.kind === "place") return leaf.name;
+    const state = this._hass.states[leaf.entity_id];
+    return state?.attributes.friendly_name || leaf.entity_id;
+  }
+
+  _leafLocation(leaf) {
+    if (leaf.kind === "place") return [leaf.latitude, leaf.longitude];
+    const state = this._hass.states[leaf.entity_id];
+    return state ? [state.attributes.latitude, state.attributes.longitude] : null;
+  }
+
+  // Find a node: { list, index, node } where list is the root or a folder's children.
+  static _locate(tree, id) {
+    for (let i = 0; i < tree.length; i++) {
+      if (tree[i].id === id) return { list: tree, index: i, node: tree[i] };
+      if (tree[i].kind === "folder") {
+        const j = tree[i].children.findIndex((child) => child.id === id);
+        if (j >= 0) return { list: tree[i].children, index: j, node: tree[i].children[j] };
+      }
+    }
+    return null;
+  }
+
+  // Move a node before/after another, or into a folder. Folders stay one level deep.
+  _moveSaved(id, targetId, position) {
+    if (id === targetId) return;
+    this._updateSaved((tree) => {
+      const from = NaverMapPanel._locate(tree, id);
+      if (!from) return;
+      let target = NaverMapPanel._locate(tree, targetId);
+      if (!target) return;
+      if (from.node.kind === "folder" && (position === "into" || target.list !== tree)) {
+        // A folder dropped on a folder's contents goes next to that folder instead.
+        const parent = tree.find((n) => n.kind === "folder" && n.children.includes(target.node));
+        target = parent ? NaverMapPanel._locate(tree, parent.id) : target;
+        if (position === "into") position = "after";
+      }
+      from.list.splice(from.index, 1);
+      if (position === "into") {
+        target.node.open = true;
+        target.node.children.push(from.node);
+        return;
+      }
+      const at = target.list.indexOf(target.node);
+      target.list.splice(position === "before" ? at : at + 1, 0, from.node);
+    });
+  }
+
+  _isSaved(place) {
+    return (
+      this._savedZoneFor(place) ||
+      this._savedLeaves().some(
+        (leaf) =>
+          leaf.kind === "place" &&
+          ((place.place_id && leaf.place_id === place.place_id) ||
+            (leaf.name === place.place_name &&
+              Math.abs(leaf.latitude - place.latitude) < SAME_PLACE_DEG &&
+              Math.abs(leaf.longitude - place.longitude) < SAME_PLACE_DEG))
+      )
+    );
+  }
+
+  _savePlace(place) {
+    this._updateSaved((tree) =>
+      tree.push({
+        kind: "place",
+        id: newId(),
         name: place.place_name,
         latitude: place.latitude,
         longitude: place.longitude,
-        ...SAVED_ZONE,
-      });
+        ...(place.place_id ? { place_id: place.place_id } : {}),
+        ...(place.road_address || place.address
+          ? { address: place.road_address || place.address }
+          : {}),
+      })
+    );
+  }
+
+  // Zones created in the UI (or here) are listed by zone/list; YAML zones and
+  // home are not, and cannot be changed from the panel.
+  async _zoneId(entityId) {
+    const state = this._hass.states[entityId];
+    const zones = await this._hass.callWS({ type: "zone/list" });
+    return zones.find(
+      (z) =>
+        z.name === state.attributes.friendly_name &&
+        Math.abs(z.latitude - state.attributes.latitude) < 1e-6 &&
+        Math.abs(z.longitude - state.attributes.longitude) < 1e-6
+    )?.id;
+  }
+
+  async _zoneCall(work) {
+    try {
+      await work();
     } catch (err) {
       this._error = err.message || String(err);
       this._render();
     }
   }
 
-  // Zones created in the UI (or here) are listed by zone/list; YAML zones and
-  // home are not, and cannot be removed from the panel.
-  async _removeSaved(entityId) {
-    if (this._confirmRemove !== entityId) {
-      this._confirmRemove = entityId;
+  // Delete needs a second tap: a favorite leaves the list, a zone is deleted.
+  _removeSaved(id) {
+    if (this._confirmRemove !== id) {
+      this._confirmRemove = id;
       this._render();
       return;
     }
     this._confirmRemove = null;
-    const state = this._hass.states[entityId];
-    try {
-      const zones = await this._hass.callWS({ type: "zone/list" });
-      const zone = zones.find(
-        (z) =>
-          z.name === state.attributes.friendly_name &&
-          Math.abs(z.latitude - state.attributes.latitude) < 1e-6 &&
-          Math.abs(z.longitude - state.attributes.longitude) < 1e-6
-      );
-      if (zone) await this._hass.callWS({ type: "zone/delete", zone_id: zone.id });
-    } catch (err) {
-      this._error = err.message || String(err);
-      this._render();
+    const found = NaverMapPanel._locate(this._savedTree(), id);
+    if (!found) return;
+    if (found.node.kind === "zone") {
+      this._zoneCall(async () => {
+        const zoneId = await this._zoneId(found.node.entity_id);
+        if (zoneId) await this._hass.callWS({ type: "zone/delete", zone_id: zoneId });
+      });
+      return;
     }
+    this._updateSaved((tree) => {
+      const at = NaverMapPanel._locate(tree, id);
+      if (!at) return;
+      at.list.splice(at.index, 1, ...(at.node.kind === "folder" ? at.node.children : []));
+    });
+  }
+
+  _renameSaved(id, name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const found = NaverMapPanel._locate(this._savedTree(), id);
+    if (found?.node.kind === "zone") {
+      this._zoneCall(async () => {
+        const zoneId = await this._zoneId(found.node.entity_id);
+        if (zoneId) await this._hass.callWS({ type: "zone/update", zone_id: zoneId, name: trimmed });
+      });
+      return;
+    }
+    this._updateSaved((tree) => {
+      const at = NaverMapPanel._locate(tree, id);
+      if (at) at.node.name = trimmed;
+    });
+  }
+
+  // A favorite becomes a passive zone in the same spot of the tree.
+  _favoriteToZone(id) {
+    const found = NaverMapPanel._locate(this._savedTree(), id);
+    if (found?.node.kind !== "place") return;
+    const leaf = found.node;
+    this._zoneCall(async () => {
+      const zone = await this._hass.callWS({
+        type: "zone/create",
+        name: leaf.name,
+        latitude: leaf.latitude,
+        longitude: leaf.longitude,
+        ...SAVED_ZONE,
+      });
+      const entityId = `zone.${zone.id}`;
+      this._updateSaved((tree) => {
+        const at = NaverMapPanel._locate(tree, id);
+        if (at) at.list[at.index] = { kind: "zone", id: `zone:${entityId}`, entity_id: entityId };
+      });
+    });
+  }
+
+  // Drag by the ≡ handle (mouse or touch): the row under the pointer becomes
+  // the drop target, before/after it or, for a folder's middle, into it.
+  _setUpDrag(content) {
+    content.addEventListener("pointerdown", (ev) => {
+      const handle = ev.target.closest(".drag-handle");
+      if (!handle || !this._editing) return;
+      ev.preventDefault();
+      handle.setPointerCapture(ev.pointerId);
+      this._drag = { id: handle.dataset.id, target: null };
+      handle.closest(".node").classList.add("dragging");
+    });
+    content.addEventListener("pointermove", (ev) => {
+      if (!this._drag) return;
+      const row = this._root.elementFromPoint(ev.clientX, ev.clientY)?.closest(".node-row");
+      content.querySelectorAll(".drop-before, .drop-after, .drop-into").forEach((el) =>
+        el.classList.remove("drop-before", "drop-after", "drop-into")
+      );
+      // Keep the list scrolling while dragging near its edges.
+      const box = content.getBoundingClientRect();
+      if (ev.clientY < box.top + 40) content.scrollBy(0, -12);
+      else if (ev.clientY > box.bottom - 40) content.scrollBy(0, 12);
+      if (!row || row.dataset.id === this._drag.id) {
+        this._drag.target = null;
+        return;
+      }
+      const rect = row.getBoundingClientRect();
+      const y = (ev.clientY - rect.top) / rect.height;
+      const isFolder = row.dataset.kind === "folder";
+      const position = isFolder && y > 0.25 && y < 0.75 ? "into" : y < 0.5 ? "before" : "after";
+      row.classList.add(`drop-${position}`);
+      this._drag.target = { id: row.dataset.id, position };
+    });
+    const end = () => {
+      if (!this._drag) return;
+      const { id, target } = this._drag;
+      this._drag = null;
+      if (target) this._moveSaved(id, target.id, target.position);
+      else this._render();
+    };
+    content.addEventListener("pointerup", end);
+    content.addEventListener("pointercancel", end);
   }
 
   // A colored dot, cached per marker so ha-map sees the same element and keeps it.
@@ -845,21 +1116,46 @@ class NaverMapPanel extends HTMLElement {
         break;
       case "saved-use":
       case "saved-select": {
-        const state = this._hass.states[el.dataset.entity];
-        if (!state) break;
-        const location = [state.attributes.latitude, state.attributes.longitude];
+        const found = NaverMapPanel._locate(this._savedTree(), el.dataset.id);
+        if (!found) break;
+        const leaf = found.node;
+        const location = this._leafLocation(leaf);
+        if (!location) break;
         if (action === "saved-select") {
           this._map?.fitBounds([location], { zoom: 16 });
           break;
         }
-        const label = state.attributes.friendly_name || state.entity_id;
+        const label = this._leafName(leaf);
         this._tab = "route";
         this._queries[slot] = label;
-        this._setPoint(slot, { label, entityId: state.entity_id, location });
+        this._setPoint(slot, {
+          label,
+          location,
+          ...(leaf.kind === "zone" ? { entityId: leaf.entity_id } : {}),
+        });
         break;
       }
       case "saved-remove":
-        this._removeSaved(el.dataset.entity);
+        this._removeSaved(el.dataset.id);
+        break;
+      case "saved-zone":
+        this._favoriteToZone(el.dataset.id);
+        break;
+      case "saved-edit":
+        this._editing = !this._editing;
+        this._confirmRemove = null;
+        this._render();
+        break;
+      case "folder-new":
+        this._updateSaved((tree) =>
+          tree.unshift({ kind: "folder", id: newId(), name: this._t.newFolder, open: true, children: [] })
+        );
+        break;
+      case "folder-toggle":
+        this._updateSaved((tree) => {
+          const at = NaverMapPanel._locate(tree, el.dataset.id);
+          if (at) at.node.open = !at.node.open;
+        });
         break;
       case "nearby":
         this._searchNearby(el.dataset.category);
@@ -919,6 +1215,22 @@ class NaverMapPanel extends HTMLElement {
   }
 
   _onChange(ev) {
+    const { rename, move } = ev.target.dataset;
+    if (rename) {
+      this._renameSaved(rename, ev.target.value);
+      return;
+    }
+    if (move) {
+      const into = ev.target.value;
+      if (into) this._moveSaved(move, into, "into");
+      else {
+        // Out of its folder: right after that folder.
+        const tree = this._savedTree();
+        const folder = tree.find((n) => n.kind === "folder" && n.children.some((c) => c.id === move));
+        if (folder) this._moveSaved(move, folder.id, "after");
+      }
+      return;
+    }
     if (ev.target.dataset.sort) {
       this._transitSort = ev.target.value;
       this._selectFirstVisibleAlternative();
@@ -1242,53 +1554,122 @@ class NaverMapPanel extends HTMLElement {
       ${places ? `<ul class="list">${places}</ul>` : ""}`;
   }
 
-  // Creating zones needs an administrator; others only see what is saved.
   _renderSaveButton(place, index) {
     const t = this._t;
-    if (this._savedZoneFor(place)) {
+    if (this._isSaved(place)) {
       return `<span class="chip saved">${icon("saved")}${t.savedLabel}</span>`;
     }
-    if (!this._hass.user?.is_admin) return "";
     return `<button class="chip" data-action="place-save" data-index="${index}">${icon("save")}${t.save}</button>`;
   }
 
   _renderSavedTab() {
     const t = this._t;
+    if (this._saved === null) return `<p class="muted">…</p>`;
+    const tree = this._savedTree();
+    const folders = tree.filter((n) => n.kind === "folder");
+    const editing = this._editing;
+    const toolbar = `
+      <div class="saved-toolbar">
+        ${editing ? `<button class="chip" data-action="folder-new">${icon("folderNew")}${t.newFolder}</button>` : ""}
+        <span class="spacer"></span>
+        <button class="chip ${editing ? "active" : ""}" data-action="saved-edit">${icon(editing ? "done" : "edit")}${editing ? t.done : t.edit}</button>
+      </div>
+      ${editing ? `<small>${t.dragHint}</small>` : ""}`;
+    const nodes = tree
+      .map((node) =>
+        node.kind === "folder" ? this._renderFolder(node, folders) : this._renderLeaf(node, folders, null)
+      )
+      .join("");
+    const empty = tree.some((n) => n.kind === "folder" || n.kind === "place")
+      ? ""
+      : `<p class="muted">${t.savedEmpty}</p>`;
+    return `
+      ${toolbar}
+      ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
+      <ul class="list tree">${nodes}</ul>
+      ${empty}`;
+  }
+
+  _renderFolder(folder, folders) {
+    const t = this._t;
+    const head = this._editing
+      ? `<span class="drag-handle" data-id="${folder.id}">${icon("drag")}</span>
+         ${icon("folder")}
+         <input class="rename" data-rename="${folder.id}" value="${escapeHtml(folder.name)}" aria-label="${t.folderName}">
+         ${this._removeButton(folder.id, t.deleteFolder)}`
+      : `<button class="plain folder-head" data-action="folder-toggle" data-id="${folder.id}">
+           ${icon(folder.open ? "folderOpen" : "folder")}<b>${escapeHtml(folder.name)}</b>
+           <small>${t.items(folder.children.length)}</small>
+         </button>`;
+    const children =
+      folder.open || this._editing
+        ? `<ul class="list children">${folder.children.map((leaf) => this._renderLeaf(leaf, folders, folder)).join("")}</ul>`
+        : "";
+    return `
+      <li class="node folder">
+        <div class="node-row folder-row" data-id="${folder.id}" data-kind="folder">${head}</div>
+        ${children}
+      </li>`;
+  }
+
+  _removeButton(id, title) {
+    const t = this._t;
+    const confirming = this._confirmRemove === id;
+    return `<button class="icon-btn small ${confirming ? "danger" : ""}" data-action="saved-remove" data-id="${id}" title="${confirming ? t.confirmRemove : title || t.remove}">${icon("delete")}</button>${confirming ? `<small class="danger-text">${t.confirmRemove}</small>` : ""}`;
+  }
+
+  _renderLeaf(leaf, folders, folder) {
+    const t = this._t;
     const isAdmin = this._hass.user?.is_admin;
+    const name = this._leafName(leaf);
+    const location = this._leafLocation(leaf);
     const start = this._startLocation().location;
-    const zones = this._savedZones();
-    const custom = zones.filter((s) => s.entity_id !== "zone.home");
-    const cards = zones
-      .map((s) => {
-        const meters = Math.round(
-          distanceMeters(start, [s.attributes.latitude, s.attributes.longitude])
-        );
-        const removable = isAdmin && s.entity_id !== "zone.home" && s.attributes.editable;
-        const confirming = this._confirmRemove === s.entity_id;
-        return `
-        <li class="card place">
-          <button class="plain" data-action="saved-select" data-entity="${escapeHtml(s.entity_id)}">
-            <b><ha-icon class="zone-icon" icon="${escapeHtml(s.attributes.icon || "mdi:map-marker")}"></ha-icon>${escapeHtml(s.attributes.friendly_name || s.entity_id)}</b>
-            <small>${this._formatDistance(meters)}</small>
-          </button>
-          <div class="actions">
-            <button class="chip" data-action="saved-use" data-slot="origin" data-entity="${escapeHtml(s.entity_id)}">
-              <span class="dot" style="background:${COLORS.origin}"></span>${t.setOrigin}</button>
-            <button class="chip" data-action="saved-use" data-slot="destination" data-entity="${escapeHtml(s.entity_id)}">
-              <span class="dot" style="background:${COLORS.destination}"></span>${t.setDestination}</button>
+    const meters = location ? Math.round(distanceMeters(start, location)) : null;
+    const zoneState = leaf.kind === "zone" ? this._hass.states[leaf.entity_id] : null;
+    const leafIcon =
+      leaf.kind === "zone" ? zoneState?.attributes.icon || ICONS.zone : "mdi:star";
+    // Zones are renamed/removed for everyone, so only administrators may, and
+    // only UI-created ones (home and YAML zones are read-only).
+    const zoneEditable = isAdmin && zoneState?.attributes.editable && leaf.entity_id !== "zone.home";
+    if (this._editing) {
+      const moveOptions = [
+        `<option value="">${t.noFolder}</option>`,
+        ...folders.map(
+          (f) => `<option value="${f.id}" ${f === folder ? "selected" : ""}>${escapeHtml(f.name)}</option>`
+        ),
+      ].join("");
+      const canRename = leaf.kind === "place" || zoneEditable;
+      return `
+        <li class="node leaf">
+          <div class="node-row card" data-id="${leaf.id}" data-kind="${leaf.kind}">
+            <span class="drag-handle" data-id="${leaf.id}">${icon("drag")}</span>
+            <ha-icon class="zone-icon" icon="${escapeHtml(leafIcon)}"></ha-icon>
             ${
-              removable
-                ? `<button class="chip ${confirming ? "danger" : ""}" data-action="saved-remove" data-entity="${escapeHtml(s.entity_id)}">${icon("delete")}${confirming ? t.confirmRemove : t.remove}</button>`
-                : ""
+              canRename
+                ? `<input class="rename" data-rename="${leaf.id}" value="${escapeHtml(name)}">`
+                : `<b class="leaf-name">${escapeHtml(name)}</b>`
             }
+            <select class="move" data-move="${leaf.id}" title="${t.moveTo}" aria-label="${t.moveTo}">${moveOptions}</select>
+            ${leaf.kind === "place" && isAdmin ? `<button class="icon-btn small" data-action="saved-zone" data-id="${leaf.id}" title="${t.makeZone}">${icon("zone")}</button>` : ""}
+            ${leaf.kind === "place" || zoneEditable ? this._removeButton(leaf.id) : ""}
           </div>
         </li>`;
-      })
-      .join("");
+    }
     return `
-      ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
-      <ul class="list">${cards}</ul>
-      ${custom.length ? "" : `<p class="muted">${isAdmin ? t.savedEmpty : t.savedEmptyUser}</p>`}`;
+      <li class="node leaf">
+        <div class="node-row card place" data-id="${leaf.id}" data-kind="${leaf.kind}">
+          <button class="plain" data-action="saved-select" data-id="${leaf.id}">
+            <b><ha-icon class="zone-icon" icon="${escapeHtml(leafIcon)}"></ha-icon>${escapeHtml(name)}${leaf.kind === "zone" ? ` <span class="label">${t.zone}</span>` : ""}</b>
+            <small>${[meters != null ? this._formatDistance(meters) : null, leaf.address && escapeHtml(leaf.address)].filter(Boolean).join(" · ")}</small>
+          </button>
+          <div class="actions">
+            <button class="chip" data-action="saved-use" data-slot="origin" data-id="${leaf.id}">
+              <span class="dot" style="background:${COLORS.origin}"></span>${t.setOrigin}</button>
+            <button class="chip" data-action="saved-use" data-slot="destination" data-id="${leaf.id}">
+              <span class="dot" style="background:${COLORS.destination}"></span>${t.setDestination}</button>
+          </div>
+        </div>
+      </li>`;
   }
 
   // Naver Place summary of the selected place: photos, status, reviews, services.
@@ -1635,6 +2016,26 @@ const STYLE = `
   .chip ha-icon { --mdc-icon-size: 18px; }
   .chip.saved { color: var(--primary-color); border-color: var(--primary-color); }
   .chip.danger { color: var(--error-color); border-color: var(--error-color); }
+  .saved-toolbar { display: flex; align-items: center; gap: 6px; }
+  .spacer { flex: 1; }
+  .tree, .children { gap: 6px; }
+  .children { margin-left: 18px; padding-left: 8px; border-left: 2px solid var(--divider-color); }
+  .node-row { display: flex; align-items: center; gap: 6px; }
+  .node-row.card { padding: 8px 10px; }
+  .node-row.card.place { flex-direction: column; align-items: stretch; padding: 12px; }
+  .folder-row { padding: 6px 4px; border-radius: 8px; }
+  .folder-head { flex-direction: row; align-items: center; gap: 6px; }
+  .folder-head ha-icon { color: var(--primary-color); }
+  .rename { flex: 1; padding: 6px 8px; }
+  .move { max-width: 34%; padding: 6px; font-size: 13px; }
+  .leaf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .drag-handle { display: flex; padding: 4px; cursor: grab; touch-action: none; color: var(--secondary-text-color); }
+  .node.dragging > .node-row { opacity: 0.4; }
+  .drop-before { box-shadow: inset 0 3px 0 var(--primary-color); }
+  .drop-after { box-shadow: inset 0 -3px 0 var(--primary-color); }
+  .drop-into { background: rgba(var(--rgb-primary-color, 3, 169, 244), 0.15); outline: 2px dashed var(--primary-color); }
+  .icon-btn.danger { color: var(--error-color); }
+  .danger-text { color: var(--error-color); }
   .zone-icon { --mdc-icon-size: 18px; color: var(--primary-color); margin-right: 4px; vertical-align: -3px; }
   .open { display: inline-flex; align-items: center; gap: 4px; color: var(--primary-color); text-decoration: none; font-size: 14px; }
   .open ha-icon { --mdc-icon-size: 18px; }
