@@ -1,0 +1,18 @@
+{
+  "domain": "naver_map",
+  "name": "Naver Map",
+  "codeowners": [
+    "@saya6k"
+  ],
+  "config_flow": true,
+  "documentation": "https://github.com/saya6k/hacs-naver-map",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/saya6k/hacs-naver-map/issues",
+  "loggers": [
+    "custom_components.naver_map"
+  ],
+  "requirements": [],
+  "single_config_entry": true,
+  "version": "0.0.0"
+}

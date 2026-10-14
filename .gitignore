@@ -1,0 +1,37 @@
+# Whitelist .gitignore — default-deny. Ignore everything at the top level,
+# then re-include only the paths that belong in the repo. The local dev
+# `config/` (devcontainer HA runtime state) is therefore never committed.
+/*
+
+# Tracked directories
+!/.devcontainer/
+!/.github/
+!/custom_components/
+!/scripts/
+!/tests/
+!/docs/
+
+# Tracked top-level files
+!/.gitignore
+!/README.md
+!/CHANGELOG.md
+!/LICENSE
+!/hacs.json
+!/pyproject.toml
+!/zensical.en.toml
+!/zensical.ko.toml
+
+# Agent scaffolding (AGENTS.md and its CLAUDE.md / GEMINI.md symlink aliases,
+# .agents/, .claude/, .gemini) is local-only and deliberately not whitelisted
+# above — it stays on each developer's machine, out of the published repo.
+
+# Dev-only planning artifacts stay local and untracked (never whitelisted):
+#   SPEC.md, tasks/, plan.md, todo.md, spec/
+
+# Noise inside tracked directories
+__pycache__/
+*.py[cod]
+.DS_Store
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/

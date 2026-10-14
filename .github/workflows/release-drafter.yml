@@ -1,0 +1,99 @@
+name: Release Drafter
+
+# Standalone (not a workflow_call reusable): needs its own pull_request_target
+# trigger for autolabeling, which reusable workflows invoked via `uses:` from
+# ci.yml cannot receive. Plus a manifest-version-sync job — HACS reads the
+# version from manifest.json, so it must track the resolved release version.
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches: [main]
+  # Label PRs from their Conventional-Commit title so the version-resolver can
+  # pick the bump (feat -> minor; fix/chore/ci -> patch). Without a PR trigger
+  # the autolabeler never runs, so every release would default to patch. Uses
+  # pull_request_target so labeling works for fork PRs too; release-drafter only
+  # calls the API (no PR code is checked out).
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+  workflow_dispatch:
+
+concurrency:
+  group: release-drafter-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  # Labels are mutated through the Issues API even for PRs -- without this,
+  # autolabeler's label-add calls 403 silently (no error surfaced in the
+  # release-drafter log), so every PR ships unlabeled and every category
+  # falls through to the flat "What's Changed" list instead of being
+  # grouped. Confirmed missing on a live repo 2026-07-04.
+  issues: write
+
+jobs:
+  # release-drafter's own built-in autolabeler (see the `autolabeler:` key in
+  # release-drafter.yml/release-drafter-prerelease.yml) does not reliably
+  # label PRs in this repo -- confirmed 2026-07-11 on PRs #13-#16: correct
+  # config, correct permissions (issues/pull-requests: write), current
+  # action version (v7.5.1, well past the pull_request_target fix in
+  # v7.1.0), yet zero labels applied and no error in the log. Root cause
+  # not identified; label PRs ourselves instead of depending on it, using
+  # the exact same Conventional-Commit title patterns as the `autolabeler:`
+  # config so both stay in sync.
+  autolabel:
+    name: Label PR from its title
+    if: github.event_name == 'pull_request_target'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            let label;
+            if (/^feat(\(.+\))?!?:/i.test(title)) {
+              label = "enhancement";
+            } else if (/^(fix|perf|revert)(\(.+\))?!?:/i.test(title)) {
+              label = "fix";
+            } else if (/^(chore|ci|docs|refactor|build|style|test)(\(.+\))?!?:/i.test(title)) {
+              label = "chore";
+            } else {
+              core.info(`No Conventional-Commit prefix matched in title: "${title}"`);
+              return;
+            }
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              labels: [label],
+            });
+            core.info(`Added label "${label}" from title: "${title}"`);
+
+  # No manifest.json sync here: the committed manifest stays at the latest
+  # stable release, and release-zip.yml patches the authoritative version
+  # into the zip asset at publish time (a push-based sync also cannot work
+  # anymore -- main is protected and only accepts changes via PR).
+  draft:
+    name: Draft stable release
+    needs: [autolabel]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  draft-prerelease:
+    name: Draft prerelease (rc)
+    # PR events are only for autolabeling, which the stable job already does.
+    if: github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v7
+        with:
+          config-name: release-drafter-prerelease.yml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

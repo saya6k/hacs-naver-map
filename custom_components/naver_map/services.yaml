@@ -1,0 +1,90 @@
+search_place:
+  fields:
+    query:
+      required: true
+      example: "스타벅스 판교"
+      selector:
+        text:
+
+search_nearby:
+  fields:
+    center:
+      required: true
+      example: "{latitude: 37.5665, longitude: 126.978}"
+      selector:
+        location:
+          radius: false
+    category:
+      example: cafe
+      selector:
+        select:
+          translation_key: category
+          options:
+            - supermarket
+            - convenience_store
+            - daycare
+            - school
+            - academy
+            - parking
+            - gas_station
+            - subway_station
+            - bank
+            - cultural_facility
+            - real_estate
+            - public_institution
+            - tourist_attraction
+            - accommodation
+            - restaurant
+            - cafe
+            - hospital
+            - pharmacy
+    query:
+      example: "스타벅스"
+      selector:
+        text:
+    radius:
+      default: 1000
+      selector:
+        number:
+          min: 1
+          max: 20000
+          unit_of_measurement: m
+          mode: box
+
+geocode_address:
+  fields:
+    query:
+      required: true
+      example: "경기 성남시 분당구 판교역로 4"
+      selector:
+        text:
+
+get_directions:
+  fields:
+    origin:
+      required: true
+      example: "{latitude: 37.5665, longitude: 126.978}"
+      selector:
+        location:
+          radius: false
+    destination:
+      required: true
+      example: "{latitude: 37.3945, longitude: 127.1112}"
+      selector:
+        location:
+          radius: false
+    waypoints:
+      example: "[zone.office, {latitude: 37.39, longitude: 127.11}]"
+      selector:
+        entity:
+          multiple: true
+    mode:
+      default: car
+      selector:
+        select:
+          translation_key: mode
+          options:
+            - car
+            - transit
+            - walk
+            - bicycle

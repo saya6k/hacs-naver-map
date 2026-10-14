@@ -1,0 +1,147 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "두 종류의 인증 정보를 입력하세요: 검색 API를 사용하는 Naver Developers 애플리케이션(장소 검색), 그리고 Geocoding·Reverse Geocoding·Directions 5를 활성화한 NAVER Cloud Platform Maps 애플리케이션. 각각 1회 호출로 유효성을 검증합니다.",
+        "data": {
+          "client_id": "Naver Developers Client ID",
+          "client_secret": "Naver Developers Client Secret",
+          "ncp_key_id": "NCP Maps API Key ID",
+          "ncp_key": "NCP Maps API Key"
+        }
+      }
+    },
+    "error": {
+      "invalid_search_auth": "Naver Developers가 Client ID/Secret을 거부했습니다 (HTTP 401).",
+      "invalid_ncp_auth": "NAVER Cloud Platform이 Maps API 키를 거부했습니다 (HTTP 401). 키와 애플리케이션의 Geocoding 사용 설정을 확인하세요.",
+      "cannot_connect": "네이버 API에 연결할 수 없습니다. 네트워크를 확인한 뒤 다시 시도하세요."
+    }
+  },
+  "services": {
+    "search_place": {
+      "name": "장소 검색",
+      "description": "키워드로 네이버 지도 장소를 검색해 상위 5건까지 좌표·주소·지도 링크를 반환합니다.",
+      "fields": {
+        "query": {
+          "name": "검색어",
+          "description": "검색 키워드 (예: 장소·상호명)."
+        }
+      }
+    },
+    "search_nearby": {
+      "name": "주변 검색",
+      "description": "중심 지점 주변에서 카테고리 또는 키워드로 장소를 검색해 거리순 상위 5건까지 반환합니다.",
+      "fields": {
+        "center": {
+          "name": "중심 지점",
+          "description": "검색 중심점: 위치를 가진 엔티티 또는 위도/경도 값."
+        },
+        "category": {
+          "name": "카테고리",
+          "description": "검색할 장소 카테고리. 카테고리와 검색어 중 하나만 지정하세요."
+        },
+        "query": {
+          "name": "검색어",
+          "description": "검색 키워드. 검색어와 카테고리 중 하나만 지정하세요."
+        },
+        "radius": {
+          "name": "반경",
+          "description": "검색 반경(미터, 최대 20000)."
+        }
+      }
+    },
+    "geocode_address": {
+      "name": "주소 좌표 변환",
+      "description": "주소를 WGS84 좌표로 변환해 가장 일치하는 결과의 지번·도로명 주소, 우편번호, 지도 링크를 반환합니다.",
+      "fields": {
+        "query": {
+          "name": "주소",
+          "description": "변환할 주소 (도로명 또는 지번 주소)."
+        }
+      }
+    },
+    "get_directions": {
+      "name": "길찾기",
+      "description": "출발지와 도착지(선택적 경유지 포함) 사이의 네이버 지도 경로 링크와 구간별 지점, best-effort 소요시간·거리를 반환합니다.",
+      "fields": {
+        "origin": {
+          "name": "출발지",
+          "description": "출발지 위치를 가진 엔티티(person, device_tracker, zone, sensor 등) 또는 위도/경도 값."
+        },
+        "destination": {
+          "name": "도착지",
+          "description": "도착지 위치를 가진 엔티티 또는 위도/경도 값."
+        },
+        "waypoints": {
+          "name": "경유지",
+          "description": "최대 5개, 각 항목은 엔티티 또는 위도/경도 값. 대중교통 모드에서는 사용할 수 없습니다."
+        },
+        "mode": {
+          "name": "이동 수단",
+          "description": "car / transit(대중교통) / walk / bicycle."
+        }
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "car": "자동차",
+        "transit": "대중교통",
+        "walk": "도보",
+        "bicycle": "자전거"
+      }
+    },
+    "category": {
+      "options": {
+        "supermarket": "대형마트",
+        "convenience_store": "편의점",
+        "daycare": "어린이집",
+        "school": "학교",
+        "academy": "학원",
+        "parking": "주차장",
+        "gas_station": "주유소",
+        "subway_station": "지하철역",
+        "bank": "은행",
+        "cultural_facility": "문화시설",
+        "real_estate": "부동산",
+        "public_institution": "공공기관",
+        "tourist_attraction": "관광명소",
+        "accommodation": "숙박",
+        "restaurant": "맛집",
+        "cafe": "카페",
+        "hospital": "병원",
+        "pharmacy": "약국"
+      }
+    }
+  },
+  "exceptions": {
+    "no_results": {
+      "message": "\"{query}\"에 대한 장소를 찾지 못했습니다."
+    },
+    "api_error": {
+      "message": "네이버 API 요청이 실패했습니다. 로그를 확인하세요."
+    },
+    "point_input_missing": {
+      "message": "{role}에 엔티티 또는 좌표를 지정하세요."
+    },
+    "entity_not_found": {
+      "message": "엔티티 {entity_id}을(를) 찾을 수 없습니다."
+    },
+    "entity_missing_coordinates": {
+      "message": "엔티티 {entity_id}에 latitude/longitude 속성이 없습니다."
+    },
+    "invalid_location": {
+      "message": "{role} 위치가 잘못되었습니다: {value}. 위도/경도 쌍이어야 합니다."
+    },
+    "too_many_waypoints": {
+      "message": "경유지가 너무 많습니다 ({count}개). 네이버 지도는 최대 {max}개까지 지원합니다."
+    },
+    "nearby_input": {
+      "message": "주변 검색은 카테고리 또는 검색어 중 정확히 하나만 지정해야 합니다."
+    },
+    "transit_no_waypoints": {
+      "message": "대중교통 경로는 경유지를 지원하지 않습니다. 경유지를 제거하거나 다른 모드를 선택하세요."
+    }
+  }
+}

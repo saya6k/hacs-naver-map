@@ -1,0 +1,27 @@
+name: Test
+
+# Reusable: ruff lint + pytest suite. Called by ci.yml on every push/PR.
+#
+# The suite runs in the same pinned Home Assistant image as the devcontainer.
+# Dev nightlies are published to GHCR before PyPI, so installing the target
+# version into a standalone venv is not reliable.
+# yamllint disable-line rule:truthy
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: ruff + pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ruff + pytest in the pinned Home Assistant image
+        run: |
+          HA_IMAGE=$(jq -r .image .devcontainer/devcontainer.json)
+          docker run --rm \
+            --volume "$PWD:/workspace" \
+            --workdir /workspace \
+            --entrypoint /bin/bash \
+            "$HA_IMAGE" \
+            -c 'pip3 install --no-cache-dir ruff -r tests/requirements_test.txt && ruff check . && pytest'

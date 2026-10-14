@@ -1,0 +1,37 @@
+{
+  "name": "hacs-naver-map-dev",
+  "image": "ghcr.io/home-assistant/home-assistant:2026.10.0.dev202609290227",
+  "runArgs": ["--hostname=hacs-naver-map-dev", "--entrypoint", "/bin/bash", "-p", "8123:8123"],
+  "overrideCommand": true,
+  "postCreateCommand": "scripts/setup",
+  "forwardPorts": [8123],
+  "portsAttributes": {
+    "8123": {
+      "label": "Home Assistant (dev)",
+      "onAutoForward": "notify"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "charliermarsh.ruff",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "redhat.vscode-yaml",
+        "github.vscode-pull-request-github"
+      ],
+      "settings": {
+        "files.eol": "\n",
+        "editor.tabSize": 4,
+        "editor.formatOnSave": true,
+        "files.trimTrailingWhitespace": true,
+        "python.defaultInterpreterPath": "/usr/local/bin/python3",
+        "python.analysis.typeCheckingMode": "basic",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff"
+        }
+      }
+    }
+  },
+  "remoteUser": "root"
+}

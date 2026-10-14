@@ -1,0 +1,63 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ha_naver_map"
+version = "0.1.0"
+description = "Home Assistant custom component for Naver Maps"
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",      # pycodestyle / pyflakes
+  "I",                # isort
+  "UP",               # pyupgrade
+  "B",                # bugbear
+  "SIM",              # simplify
+  "RUF",              # ruff-specific
+  "PL",               # pylint subset
+  "ANN",              # annotations
+  "ASYNC",
+  "TID",
+]
+ignore = [
+  "ANN401",  # Any allowed in narrow places
+  "PLR2004", # magic numbers in tests are fine
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ANN", "PL", "S"]
+# SVG card/table builders take many independent style knobs (title, accent,
+# width, ...); a config object would add indirection without reducing them.
+"custom_components/naver_map/llm/render.py" = ["PLR0913"]
+# Vendored verbatim/near-verbatim from home-assistant/core tests/ (see
+# tests/vendor/__init__.py) — kept close to upstream style to stay diffable.
+"tests/vendor/*.py" = ["ASYNC109", "UP049"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["custom_components.naver_map"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_any_generics = true
+disallow_subclassing_any = true
+plugins = []
+
+[[tool.mypy.overrides]]
+module = ["homeassistant.*", "voluptuous.*", "pytest_homeassistant_custom_component.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-q"

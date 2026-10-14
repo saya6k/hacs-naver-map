@@ -1,0 +1,26 @@
+name: CI
+
+# Entry point that runs the check suite (HACS + hassfest) on every push/PR.
+# Release automation lives in the standalone release-drafter.yml — it needs its
+# own pull_request_target trigger for autolabeling, which a workflow_call-only
+# file can't receive. Docs deploy is not here either: it runs from docs.yml on
+# the release-published event.
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  validate:
+    uses: ./.github/workflows/validate.yml

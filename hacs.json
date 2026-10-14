@@ -1,0 +1,8 @@
+{
+  "name": "Naver Map",
+  "render_readme": true,
+  "homeassistant": "2026.10.0.dev202609290227",
+  "country": ["KR"],
+  "zip_release": true,
+  "filename": "naver_map.zip"
+}

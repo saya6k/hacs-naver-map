@@ -1,0 +1,147 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "description": "Enter two credential pairs: a Naver Developers application with the Search API (place search), and a NAVER Cloud Platform Maps application with Geocoding, Reverse Geocoding, and Directions 5 enabled. Each pair is validated with one call.",
+        "data": {
+          "client_id": "Naver Developers Client ID",
+          "client_secret": "Naver Developers Client Secret",
+          "ncp_key_id": "NCP Maps API Key ID",
+          "ncp_key": "NCP Maps API Key"
+        }
+      }
+    },
+    "error": {
+      "invalid_search_auth": "Naver Developers rejected the Client ID/Secret (HTTP 401).",
+      "invalid_ncp_auth": "NAVER Cloud Platform rejected the Maps API key (HTTP 401). Check the key and that Geocoding is enabled for the application.",
+      "cannot_connect": "Could not reach the Naver API. Check your network and try again."
+    }
+  },
+  "services": {
+    "search_place": {
+      "name": "Search place",
+      "description": "Searches Naver Map for a place by keyword and returns up to the top 5 results, each with coordinates, addresses, and a map link.",
+      "fields": {
+        "query": {
+          "name": "Query",
+          "description": "Search keyword, e.g. a place or business name."
+        }
+      }
+    },
+    "search_nearby": {
+      "name": "Search nearby",
+      "description": "Searches for places of a category or keyword around a center point, returning up to 5 results ordered by distance.",
+      "fields": {
+        "center": {
+          "name": "Center",
+          "description": "The point to search around: an entity holding a location or a latitude/longitude value."
+        },
+        "category": {
+          "name": "Category",
+          "description": "A place category to search for. Provide either a category or a query, not both."
+        },
+        "query": {
+          "name": "Query",
+          "description": "A search keyword. Provide either a query or a category, not both."
+        },
+        "radius": {
+          "name": "Radius",
+          "description": "Search radius in meters (up to 20000)."
+        }
+      }
+    },
+    "geocode_address": {
+      "name": "Geocode address",
+      "description": "Converts an address into WGS84 coordinates, returning the best match with its jibun/road address, postal code, and a map link.",
+      "fields": {
+        "query": {
+          "name": "Address",
+          "description": "The address to geocode, e.g. a road-name or lot-number address."
+        }
+      }
+    },
+    "get_directions": {
+      "name": "Get directions",
+      "description": "Builds a Naver Map route link between an origin and destination (with optional waypoints) and returns the per-leg points plus a best-effort travel time and distance.",
+      "fields": {
+        "origin": {
+          "name": "Origin",
+          "description": "An entity holding the origin location (person, device_tracker, zone, sensor, ...) or a latitude/longitude value."
+        },
+        "destination": {
+          "name": "Destination",
+          "description": "An entity holding the destination location or a latitude/longitude value."
+        },
+        "waypoints": {
+          "name": "Waypoints",
+          "description": "Up to 5 stops, each an entity or a latitude/longitude value. Not allowed with the public transit mode."
+        },
+        "mode": {
+          "name": "Travel mode",
+          "description": "car, transit (public transit), walk, or bicycle."
+        }
+      }
+    }
+  },
+  "selector": {
+    "mode": {
+      "options": {
+        "car": "Car",
+        "transit": "Public transit",
+        "walk": "Walk",
+        "bicycle": "Bicycle"
+      }
+    },
+    "category": {
+      "options": {
+        "supermarket": "Supermarket",
+        "convenience_store": "Convenience store",
+        "daycare": "Daycare",
+        "school": "School",
+        "academy": "Academy",
+        "parking": "Parking",
+        "gas_station": "Gas station",
+        "subway_station": "Subway station",
+        "bank": "Bank",
+        "cultural_facility": "Cultural facility",
+        "real_estate": "Real estate agency",
+        "public_institution": "Public institution",
+        "tourist_attraction": "Tourist attraction",
+        "accommodation": "Accommodation",
+        "restaurant": "Restaurant",
+        "cafe": "Cafe",
+        "hospital": "Hospital",
+        "pharmacy": "Pharmacy"
+      }
+    }
+  },
+  "exceptions": {
+    "no_results": {
+      "message": "No places found for \"{query}\"."
+    },
+    "api_error": {
+      "message": "The Naver API request failed. Check the log for details."
+    },
+    "point_input_missing": {
+      "message": "Specify an entity or coordinates for {role}."
+    },
+    "entity_not_found": {
+      "message": "Entity {entity_id} was not found."
+    },
+    "entity_missing_coordinates": {
+      "message": "Entity {entity_id} has no latitude/longitude attributes."
+    },
+    "invalid_location": {
+      "message": "Invalid location for {role}: {value}. Expected a latitude/longitude pair."
+    },
+    "too_many_waypoints": {
+      "message": "Too many waypoints ({count}). Naver Map allows at most {max}."
+    },
+    "nearby_input": {
+      "message": "Provide exactly one of category or query for the nearby search."
+    },
+    "transit_no_waypoints": {
+      "message": "Public transit routes do not support waypoints. Remove the waypoints or choose another mode."
+    }
+  }
+}
