@@ -44,11 +44,18 @@ NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다. 최신 요
 
 ## 경로 패널
 
-통합을 추가하면 사이드바에 **Naver Map** 항목이 생깁니다(관리자가 아닌 사용자도 사용 가능).
+통합을 추가하면 사이드바에 **Naver Map** 항목이 생깁니다(관리자가 아닌 사용자도 사용 가능). 탭이 두 개 있습니다.
+
+**장소 검색** — 장소를 검색하면 모든 결과가 지도에 표시됩니다. 결과를 고르면 그 위치로 확대하고, 네이버 지도에서 열거나 **출발지로** / **도착지로**를 눌러 **길찾기** 탭으로 보낼 수 있습니다.
+
+**길찾기**
 
 1. **출발**과 **도착**을 지정합니다: 장소를 검색해 결과를 고르거나, person / zone / device_tracker 엔티티를 선택하거나, **지도에서 선택**을 누른 뒤 지도를 클릭합니다.
 2. **자동차**, **대중교통**, **도보**, **자전거** 중 하나를 고릅니다.
 3. 지도에 경로선이 그려지고 소요 시간·거리·도착 예정 시각(대중교통은 환승·요금 포함)과 네이버 지도에서 같은 경로를 여는 링크가 표시됩니다. 마커를 끌어 지점을 옮기면 잠시 뒤 경로를 다시 조회합니다.
+4. **상세 경로**에는 대중교통의 승차 구간(노선, 방면, 승·하차 정류장, 정류장 수, 시각)과 도보 구간, 또는 자동차·도보·자전거의 회전 안내가 표시됩니다.
+
+휴대폰·태블릿(Home Assistant 컴패니언 앱 포함)에서는 네이버 지도 링크가 네이버 지도 앱으로 열리며, Android에서 앱이 없으면 Play 스토어가 열립니다. 데스크톱에서는 map.naver.com이 열립니다.
 
 경로선을 가져오지 못하면 지점 사이를 직선으로 잇습니다. 패널 문구는 사용자 언어(한국어 또는 영어)를 따릅니다.
 
@@ -122,9 +129,12 @@ data:
     - zone.office
   mode: car                         # car | transit | walk | bicycle
   include_geometry: false           # true면 경로선을 geometry로 추가
+  include_steps: false              # true면 회전 안내/승차 구간을 steps로 추가
 response_variable: route
 # route: route_url / mode / duration(초) / distance(m) / arrival_time / legs[]
 #        (include_geometry 시 + geometry: [[위도, 경도], …] 또는 null)
+#        (include_steps 시 + steps: [{instruction, distance, duration, …}] 또는 null;
+#         대중교통은 type, lines, color, headsign, from, to, stops, 시각 추가)
 ```
 
 전체 필드는 `custom_components/naver_map/services.yaml`을 참고하세요.
@@ -140,6 +150,7 @@ MCP 클라이언트는 대화 에이전트 설정과 무관하게 `/api/mcp/nave
 - **자동차 소요시간**은 NCP Directions 5(공식)에서 가져옵니다. **대중교통·도보·자전거** 소요시간은 네이버 지도의 비공개 내부 경로 API에서 가져오며, 예고 없이 바뀌거나 차단될 수 있습니다. 실패 시 `duration` / `distance` / `arrival_time`은 `null`이 되지만 경로 링크(`route_url`)는 항상 반환됩니다.
 - **`mode: transit`**은 경유지를 지원하지 않으며 응답에 `transfers`·`fare`가 추가됩니다.
 - **경유지가 있는 `mode: bicycle`**은 링크만 제공합니다(소요시간 `null`).
+- **경로선과 세부 단계**는 소요시간과 같은 조회에서 가져오므로 같은 제약을 따르며, 각각 따로 `null`이 될 수 있습니다.
 - **경로 패널**: 자동차 모드에서 경로가 바뀔 때마다 유료 NCP API인 Directions 5를 호출합니다. 마커 드래그는 디바운스되며 자동 반복 조회는 하지 않습니다. 패널 URL로 바로 들어오면 프런트엔드 내부 기능으로 HA 지도 구성요소를 불러오므로 프런트엔드 업데이트로 깨질 수 있으며, 그때는 지도 대신 안내 문구를 표시합니다.
 - **지도 타일 교체 없음** — 상단 안내 참고.
 

@@ -43,11 +43,18 @@ NCP Maps is a paid service with a monthly free quota; check the current pricing 
 
 ## Route panel
 
-Adding the integration puts a **Naver Map** entry in the sidebar (all users, not only admins).
+Adding the integration puts a **Naver Map** entry in the sidebar (all users, not only admins). It has two tabs.
+
+**Places** — search a place; every result is marked on the map. Pick a result to zoom to it, open it in Naver Map, or send it to the **Directions** tab with **Set as origin** / **Set as destination**.
+
+**Directions**
 
 1. Set the **origin** and **destination**: search a place and pick a result, choose a person / zone / device_tracker entity, or press **Pick on map** and click the map.
 2. Choose **Car**, **Transit**, **Walk**, or **Bicycle**.
-3. The route line is drawn on the map with the travel time, distance, and arrival time (plus transfers and fare for transit), and a link opens the same route on Naver Map. Drag a marker to adjust a point; the route is looked up again after a short pause.
+3. The route line is drawn on the map with the travel time, distance, and arrival time (plus transfers and fare for transit), and a link opens the same route in Naver Map. Drag a marker to adjust a point; the route is looked up again after a short pause.
+4. **Route details** list each transit ride (line, direction, boarding and alighting stops, stop count, times) and walk, or the turn-by-turn steps for car, walk, and bicycle.
+
+On phones and tablets (including the Home Assistant companion apps) the Naver Map links open the Naver Map app; on Android a missing app opens the Play Store. On desktop they open map.naver.com.
 
 When the route line can't be read, the panel connects the points with straight segments. The panel text follows the user's language (Korean or English).
 
@@ -121,9 +128,12 @@ data:
     - zone.office
   mode: car                         # car | transit | walk | bicycle
   include_geometry: false           # true adds the route line as geometry
+  include_steps: false              # true adds turn-by-turn / per-ride steps
 response_variable: route
 # route: route_url / mode / duration(s) / distance(m) / arrival_time / legs[]
 #        (+ geometry: [[latitude, longitude], …] or null with include_geometry)
+#        (+ steps: [{instruction, distance, duration, …}] or null with include_steps;
+#         transit steps add type, lines, color, headsign, from, to, stops, times)
 ```
 
 See `custom_components/naver_map/services.yaml` for all fields.
@@ -139,6 +149,7 @@ MCP clients can also reach the API directly at `/api/mcp/naver_map` (requires an
 - **Car travel time** comes from NCP Directions 5 (official). **Transit, walk, and bicycle** travel times come from Naver Map's undocumented internal route API, which may change or be blocked. On any failure `duration` / `distance` / `arrival_time` degrade to `null` while the route link (`route_url`) is always returned.
 - **`mode: transit`** does not support waypoints and adds `transfers` and `fare` to the response.
 - **`mode: bicycle` with waypoints** is link-only (`null` travel time).
+- **Route geometry and steps** come from the same lookups as the travel time, so they share its limits and degrade to `null` independently.
 - **Route panel**: every route change in car mode calls Directions 5, a paid NCP API; marker drags are debounced, and nothing is looked up automatically. The panel loads Home Assistant's map component through frontend internals when its URL is opened directly, so a frontend update can break it; it then shows a notice instead of the map.
 - **No map-tile replacement** — see the note near the top.
 
