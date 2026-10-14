@@ -20,7 +20,8 @@ const ICONS = {
   bicycle: "mdi:bike",
   swap: "mdi:swap-vertical",
   entity: "mdi:account-box-outline",
-  pick: "mdi:crosshairs-gps",
+  pick: "mdi:map-marker-radius",
+  locate: "mdi:crosshairs-gps",
   search: "mdi:magnify",
   open: "mdi:open-in-new",
   hours: "mdi:clock-outline",
@@ -54,7 +55,10 @@ const COLORS = {
   route: "#03c75a",
   place: "#1e6fff",
   activePlace: "#ff7a00",
+  here: "#1a73e8",
 };
+const LOCATE_TIMEOUT = 8000; // ms to wait for the device position
+const START_ZOOM = 15;
 // Bottom-sheet snap heights on phone widths, as fractions of the panel height
 // (min is a fixed height that keeps the handle and the first row visible).
 const SHEET_MIN_PX = 132;
@@ -125,6 +129,8 @@ const STRINGS = {
     },
     nearbyOf: (name) => `Within 1 km of ${name}`,
     home: "Home",
+    currentLocation: "Current location",
+    locate: "Go to my location",
     noNearby: "Nothing found nearby",
     loadingDetails: "Loading place details…",
     detailsUnavailable: "Place details unavailable",
@@ -195,6 +201,8 @@ const STRINGS = {
     },
     nearbyOf: (name) => `${name} 주변 1km`,
     home: "집",
+    currentLocation: "현재 위치",
+    locate: "현 위치로",
     noNearby: "주변에서 찾지 못했습니다",
     loadingDetails: "장소 정보를 불러오는 중…",
     detailsUnavailable: "장소 정보를 불러오지 못했습니다",
@@ -303,6 +311,7 @@ class NaverMapPanel extends HTMLElement {
     this._requeryTimer = null;
     this._entityIds = "";
     this._compact = false;
+    this._here = null; // device position [lat, lng], when the browser shares it
     this._sheet = "peek";
   }
 
@@ -466,9 +475,79 @@ class NaverMapPanel extends HTMLElement {
       if (this._tab === "place") this._selectPlace(Number(ev.detail.id.replace("place-", "")));
     });
     container.appendChild(map);
+    const locate = document.createElement("button");
+    locate.className = "locate";
+    locate.title = this._t.locate;
+    locate.innerHTML = icon("locate");
+    locate.addEventListener("click", () => this._locate());
+    container.appendChild(locate);
     this._map = map;
     this._syncMapEntities();
     this._drawMap();
+    this._locate({ initial: true });
+  }
+
+  // The device position, or null when the browser can't or won't share it
+  // (geolocation needs HTTPS or localhost, and the user's permission).
+  _deviceLocation() {
+    if (!window.isSecureContext || !navigator.geolocation) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve([pos.coords.latitude, pos.coords.longitude]),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: LOCATE_TIMEOUT, maximumAge: 60000 }
+      );
+    });
+  }
+
+  // Where the panel starts and searches nearby: the device position, else the
+  // signed-in user's person, else home.
+  _startLocation() {
+    if (this._here) {
+      const [latitude, longitude] = this._here;
+      return { input: { latitude, longitude }, location: this._here, name: this._t.currentLocation };
+    }
+    const userId = this._hass.user?.id;
+    const person = Object.values(this._hass.states).find(
+      (s) =>
+        s.entity_id.startsWith("person.") &&
+        s.attributes.user_id === userId &&
+        typeof s.attributes.latitude === "number" &&
+        typeof s.attributes.longitude === "number"
+    );
+    if (person) {
+      return {
+        input: person.entity_id,
+        location: [person.attributes.latitude, person.attributes.longitude],
+        name: person.attributes.friendly_name || person.entity_id,
+      };
+    }
+    const { latitude, longitude } = this._hass.config;
+    return { input: { latitude, longitude }, location: [latitude, longitude], name: this._t.home };
+  }
+
+  // Center the map on the start location. On first load, leave the view alone
+  // if the user has already searched or picked points while it was resolving.
+  async _locate({ initial = false } = {}) {
+    this._here = (await this._deviceLocation()) || this._here;
+    this._drawMap();
+    const busy = this._places.length || this._points.origin || this._points.destination;
+    if (initial && busy) return;
+    this._map.fitBounds([this._startLocation().location], { zoom: START_ZOOM });
+  }
+
+  // A blue dot at the device position, shown on both tabs.
+  _hereMarkers() {
+    if (!this._here) return [];
+    return [
+      {
+        id: "here",
+        location: this._here,
+        title: this._t.currentLocation,
+        element: this._markerElement("here"),
+        elementSize: 18,
+      },
+    ];
   }
 
   // person/zone/device_tracker states that carry coordinates.
@@ -501,17 +580,20 @@ class NaverMapPanel extends HTMLElement {
       return;
     }
     const t = this._t;
-    this._map.editableLocations = ["origin", "destination"]
-      .filter((slot) => this._points[slot])
-      .map((slot) => ({
-        id: slot,
-        location: this._points[slot].location,
-        title: `${t[slot]}: ${this._points[slot].label}`,
-        color: COLORS[slot],
-        element: this._markerElement(slot),
-        elementSize: 20,
-        locationEditable: true,
-      }));
+    this._map.editableLocations = [
+      ...this._hereMarkers(),
+      ...["origin", "destination"]
+        .filter((slot) => this._points[slot])
+        .map((slot) => ({
+          id: slot,
+          location: this._points[slot].location,
+          title: `${t[slot]}: ${this._points[slot].label}`,
+          color: COLORS[slot],
+          element: this._markerElement(slot),
+          elementSize: 20,
+          locationEditable: true,
+        })),
+    ];
     const line = this._routeLine();
     if (line.length) {
       // ha-map labels each path point with a time; spread the ETA along the line.
@@ -539,14 +621,17 @@ class NaverMapPanel extends HTMLElement {
 
   _drawPlaces() {
     this._map.paths = [];
-    this._map.editableLocations = this._places.map((place, index) => ({
-      id: `place-${index}`,
-      location: [place.latitude, place.longitude],
-      title: place.place_name,
-      element: this._markerElement(index === this._activePlace ? "activePlace" : "place", index),
-      elementSize: 20,
-      activatable: true,
-    }));
+    this._map.editableLocations = [
+      ...this._hereMarkers(),
+      ...this._places.map((place, index) => ({
+        id: `place-${index}`,
+        location: [place.latitude, place.longitude],
+        title: place.place_name,
+        element: this._markerElement(index === this._activePlace ? "activePlace" : "place", index),
+        elementSize: 20,
+        activatable: true,
+      })),
+    ];
     if (this._places.length && this._activePlace == null) {
       this._map.fitBounds(
         this._places.map((place) => [place.latitude, place.longitude]),
@@ -740,23 +825,6 @@ class NaverMapPanel extends HTMLElement {
     this._drawMap();
   }
 
-  // Where category shortcuts search: the signed-in user's person, else home.
-  _nearbyCenter() {
-    const userId = this._hass.user?.id;
-    const person = Object.values(this._hass.states).find(
-      (s) =>
-        s.entity_id.startsWith("person.") &&
-        s.attributes.user_id === userId &&
-        typeof s.attributes.latitude === "number" &&
-        typeof s.attributes.longitude === "number"
-    );
-    if (person) {
-      return { input: person.entity_id, name: person.attributes.friendly_name || person.entity_id };
-    }
-    const { latitude, longitude } = this._hass.config;
-    return { input: { latitude, longitude }, name: this._t.home };
-  }
-
   async _searchNearby(category) {
     this._nearbyCategory = category;
     this._placeQuery = "";
@@ -764,7 +832,7 @@ class NaverMapPanel extends HTMLElement {
     this._activePlace = null;
     try {
       const response = await this._callService("search_nearby", {
-        center: this._nearbyCenter().input,
+        center: this._startLocation().input,
         category,
         radius: NEARBY_RADIUS,
       });
@@ -970,7 +1038,7 @@ class NaverMapPanel extends HTMLElement {
               <ha-icon icon="${mdi}"></ha-icon>${t.categories[category]}</button>`
         )
         .join("")}</div>
-      ${this._nearbyCategory ? `<small>${escapeHtml(t.nearbyOf(this._nearbyCenter().name))}</small>` : ""}
+      ${this._nearbyCategory ? `<small>${escapeHtml(t.nearbyOf(this._startLocation().name))}</small>` : ""}
       ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
       ${places ? `<ul class="list">${places}</ul>` : ""}`;
   }
@@ -1230,6 +1298,9 @@ const STYLE = `
     display: flex; flex-direction: column; gap: 12px; }
   .map { grid-area: map; position: relative; min-height: 0; }
   .map ha-map { display: block; height: 100%; }
+  .locate { position: absolute; right: 12px; bottom: 28px; z-index: 1; width: 44px; height: 44px;
+    border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center;
+    background: var(--card-background-color); color: var(--primary-color); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
 
   /* Phone: map above a draggable bottom sheet, bottom tab bar */
   :host(.compact) .layout { grid-template-columns: minmax(0, 1fr);

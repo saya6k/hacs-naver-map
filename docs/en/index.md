@@ -58,6 +58,8 @@ On phone widths the map sits above a bottom sheet you can drag between three hei
 4. **Transit** lists every route Naver suggests, marked **Best**, **Fastest**, **Fewest transfers**, or **Least walking**, with a bus / subway filter, a sort, times, transfers, walking time, fare, and a line-colored bar of the rides. The selected route is drawn on the map and shows each ride (line, direction, boarding and alighting stops, stop count, times) and walk.
 5. **Route details** for car, walk, and bicycle list the turn-by-turn steps.
 
+The map opens at your current location (a blue dot) when the browser shares it — this needs Home Assistant over HTTPS and location permission; the Android companion app's web view does not share it. Otherwise it opens at your person's location, else home. The location button re-centers the map, and the category shortcuts search around the same point.
+
 On phones and tablets (including the Home Assistant companion apps) the Naver Map links open the Naver Map app; on Android a missing app opens the Play Store. On desktop they open map.naver.com.
 
 When the route line can't be read, the panel connects the points with straight segments. The panel text follows the user's language (Korean or English).
