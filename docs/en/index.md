@@ -41,7 +41,7 @@ The config flow asks for the NAVER Cloud Platform keys (required) and, optionall
 | **API Key ID / API Key** (required) | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, with **Geocoding**, **Reverse Geocoding**, and **Directions 5** enabled | `geocode_address`, `get_directions` (car), region lookup for the `search_nearby` fallback |
 | **Client ID / Client Secret** (optional) | [Naver Developers](https://developers.naver.com/apps/) → Application → register with the **검색 (Search)** API | Official keyword search for `search_place`, and the `search_nearby` fallback |
 
-**Without the search keys**, keyword and nearby search rely only on Naver Map's unofficial web autocomplete: if Naver blocks or changes it, both stop, with no official search API to fall back on, and keyword results are ranked around your home rather than nationwide. Everything else works the same. The setup form says this too.
+Keyword and nearby search use Naver Map's (unofficial) web autocomplete, which, like the Naver Map app, ranks places near a point. **The search keys add the official search API as a fallback** for when that autocomplete fails; **without them**, if Naver blocks or changes it, both searches stop. Everything else works the same. The setup form says this too.
 
 NCP Maps is a paid service with a monthly free quota (e.g. Directions 5: 60,000 and Geocoding: 3,000,000 calls a month at the time of writing); check the current pricing in the NCP console. If car directions or geocoding fail, check the [NCP service status](https://www.ncloud.com/serviceStatus/).
 
@@ -75,13 +75,16 @@ Every service returns a response, so capture it with `response_variable`.
 
 ### `naver_map.search_place`
 
+Like the Naver Map app, places near `near` (an entity or coordinates; default home) come first.
+
 ```yaml
 action: naver_map.search_place
 data:
   query: 네이버 그린팩토리
+  near: person.me                   # optional; defaults to home
 response_variable: found
-# found.results[]: place_name / latitude / longitude / address / road_address /
-#                  map_url / category_name / place_url (homepage, when present)
+# found.results[]: place_name / latitude / longitude / distance(m) / address /
+#                  road_address / map_url / category_name / place_id or place_url
 ```
 
 ### `naver_map.search_nearby`

@@ -48,11 +48,15 @@ class SearchPlaceTool(BaseNaverTool):
     name = "naver_map__search_place"
     title = "Search place"
     description = (
-        "Search Naver Map for places by keyword, anywhere (not centered on a "
-        "point). Returns up to 5 matches with coordinates, address, and a "
-        "map link."
+        "Search Naver Map for places by keyword. Like the Naver Map app, "
+        "matches are ranked around a point: pass near (an entity_id like a "
+        "person/zone, or a latitude/longitude) to rank around it; it defaults "
+        "to home. Returns up to 5 matches with coordinates, distance, address, "
+        "and a map link."
     )
-    parameters = vol.Schema({vol.Required("query"): cv.string})
+    parameters = vol.Schema(
+        {vol.Required("query"): cv.string, vol.Optional("near"): POINT_INPUT}
+    )
 
     async def async_call(
         self,
@@ -60,7 +64,8 @@ class SearchPlaceTool(BaseNaverTool):
         tool_input: llm.ToolInput,
         llm_context: llm.LLMContext,
     ) -> llm.ToolResult:
-        results = await async_search_place(hass, self.clients, tool_input.tool_args["query"])
+        args = tool_input.tool_args
+        results = await async_search_place(hass, self.clients, args["query"], args.get("near"))
         return self.envelope(
             places=results,
             results=grid_results(_place_card_items(results), accent=_PLACE_ACCENT),

@@ -94,11 +94,14 @@ _API_ERRORS = (NaverApiError, aiohttp.ClientError, TimeoutError)
 # shows up as a missing key or bad value rather than an HTTP error.
 _PLACE_ERRORS = (*_API_ERRORS, KeyError, IndexError, TypeError, ValueError)
 
-SEARCH_PLACE_SCHEMA = vol.Schema({vol.Required(ATTR_QUERY): cv.string})
 GEOCODE_ADDRESS_SCHEMA = vol.Schema({vol.Required(ATTR_QUERY): cv.string})
 
 # A point is an entity_id (resolved from its lat/lon attributes) or a location mapping.
 POINT_INPUT = vol.Any(cv.entity_id, dict)
+
+SEARCH_PLACE_SCHEMA = vol.Schema(
+    {vol.Required(ATTR_QUERY): cv.string, vol.Optional(ATTR_NEAR): POINT_INPUT}
+)
 
 SEARCH_NEARBY_SCHEMA = vol.Schema(
     {
@@ -163,32 +166,49 @@ def _no_results(query: str) -> ServiceValidationError:
     )
 
 
-async def async_search_place(
-    hass: HomeAssistant, clients: NaverClients, query: str
-) -> list[dict[str, Any]]:
-    """Keyword-search places and return place results.
+def _with_distance(result: dict[str, Any], latitude: float, longitude: float) -> dict[str, Any]:
+    meters = geo_distance(latitude, longitude, result["latitude"], result["longitude"])
+    if meters is not None:
+        result["distance"] = round(meters)
+    return result
 
-    With the search keys this is the official local.json search. Without them
-    it is Naver Map's (unofficial) autocomplete, ranked around home.
+
+async def async_search_place(
+    hass: HomeAssistant, clients: NaverClients, query: str, near: Any = None
+) -> list[dict[str, Any]]:
+    """Keyword-search places, ranked around ``near`` (an entity or location; default home).
+
+    Like the Naver Map app, results favor places near that point: Naver Map's
+    (unofficial) autocomplete takes its coordinates. The official local.json
+    search, which takes none, answers only when the autocomplete fails or
+    finds nothing, and only with the optional search keys.
     """
-    if clients.search is None:
-        try:
-            places = await clients.place.async_instant_search(
-                query, hass.config.latitude, hass.config.longitude
-            )
-        except _PLACE_ERRORS as err:
+    if near:
+        point = resolve_point(hass, role=NEAR_ROLE, value=near)
+        latitude, longitude = point.latitude, point.longitude
+    else:
+        latitude, longitude = hass.config.latitude, hass.config.longitude
+    try:
+        places = await clients.place.async_instant_search(query, latitude, longitude)
+    except _PLACE_ERRORS as err:
+        if clients.search is None:
             _LOGGER.warning("Naver place autocomplete failed (no search keys): %r", err)
             raise _api_error() from err
-        if not places:
-            raise _no_results(query)
-        return [instant_place_result(place) for place in places[:MAX_SEARCH_RESULTS]]
-    try:
-        items = await clients.search.async_search_local(query)
-    except _API_ERRORS as err:
-        raise _api_error() from err
-    if not items:
+        _LOGGER.warning("Naver place autocomplete failed, using local search: %r", err)
+        places = []
+    if places:
+        results = [instant_place_result(place) for place in places[:MAX_SEARCH_RESULTS]]
+    elif clients.search is None:
         raise _no_results(query)
-    return [place_result(item) for item in items]
+    else:
+        try:
+            items = await clients.search.async_search_local(query)
+        except _API_ERRORS as err:
+            raise _api_error() from err
+        if not items:
+            raise _no_results(query)
+        results = [place_result(item) for item in items]
+    return [_with_distance(result, latitude, longitude) for result in results]
 
 
 async def async_search_nearby(
@@ -436,7 +456,11 @@ def _transit_alternative(route: TransitResult, data: Mapping[str, Any]) -> dict[
 async def _async_handle_search_place(
     hass: HomeAssistant, clients: NaverClients, call: ServiceCall
 ) -> ServiceResponse:
-    return {"results": await async_search_place(hass, clients, call.data[ATTR_QUERY])}
+    return {
+        "results": await async_search_place(
+            hass, clients, call.data[ATTR_QUERY], call.data.get(ATTR_NEAR)
+        )
+    }
 
 
 async def _async_handle_search_nearby(

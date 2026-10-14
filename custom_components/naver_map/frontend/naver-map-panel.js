@@ -1383,7 +1383,9 @@ class NaverMapPanel extends HTMLElement {
     this._error = null;
     this._activePlace = null;
     try {
-      this._places = (await this._callService("search_place", { query })).results;
+      this._places = (
+        await this._callService("search_place", { query, near: this._startLocation().input })
+      ).results;
     } catch (err) {
       this._places = [];
       this._error = err.message || String(err);
@@ -1451,7 +1453,10 @@ class NaverMapPanel extends HTMLElement {
     if (!query) return;
     this._error = null;
     try {
-      const response = await this._callService("search_place", { query });
+      const response = await this._callService("search_place", {
+        query,
+        near: this._startLocation().input,
+      });
       this._results[slot] = response.results;
       if (this._sheet === "min") this._sheet = "peek"; // room for the matches
     } catch (err) {

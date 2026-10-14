@@ -21,6 +21,7 @@ from custom_components.naver_map.const import (
 from tests.const import (
     ADDRESS_ITEM,
     ENTRY_DATA,
+    INSTANT_SEARCH_RESPONSE,
     PLACE_SUMMARY_RESPONSE,
     REGION_RESPONSE,
     STARBUCKS_ITEM,
@@ -97,6 +98,7 @@ async def test_search_place_tool_returns_places_and_cards(
 ) -> None:
     """search_place returns the formatted place list plus one card per result."""
     await _setup_integration(hass)
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)  # official-search fallback
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
     instance = await _get_api_instance(hass)
 
@@ -121,6 +123,7 @@ async def test_search_place_tool_no_results(
 ) -> None:
     """search_place raises a validation error when nothing matches."""
     await _setup_integration(hass)
+    aioclient_mock.get(INSTANT_SEARCH_URL, json={"ac": [], "place": []})
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": []})
     instance = await _get_api_instance(hass)
 
@@ -411,3 +414,22 @@ async def test_place_details_tool_returns_summary(
     assert result.data["place"]["place_name"] == "스타벅스 강남R점"
     assert result.data["place"]["business_hours"] == "22:00에 영업 종료"
     assert result.data["results"][0]["image_url"].startswith("data:image/svg+xml;base64,")
+
+
+async def test_search_place_tool_ranks_around_near(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The search_place tool passes its optional near point to the autocomplete."""
+    await _setup_integration(hass)
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+    instance = await _get_api_instance(hass)
+
+    result = await instance.async_call_tool(
+        llm.ToolInput(
+            tool_name="naver_map__search_place",
+            tool_args={"query": "스타벅스", "near": {"latitude": 37.4979, "longitude": 127.0276}},
+        )
+    )
+
+    assert result.data["places"][0]["place_name"] == "스타벅스 강남R점"
+    assert aioclient_mock.mock_calls[0][1].query["coords"] == "37.4979,127.0276"

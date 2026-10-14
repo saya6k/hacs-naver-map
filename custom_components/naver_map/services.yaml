@@ -5,6 +5,14 @@ search_place:
       example: "스타벅스 판교"
       selector:
         text:
+    near:
+      example: "person.me"
+      selector:
+        entity:
+          domain:
+            - person
+            - zone
+            - device_tracker
 
 search_nearby:
   fields:

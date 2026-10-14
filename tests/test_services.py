@@ -61,23 +61,59 @@ async def _call(hass: HomeAssistant, service: str, data: dict) -> dict:
     )
 
 
-async def test_search_place_returns_results(
+async def test_search_place_uses_autocomplete_near_point(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """search_place maps every local.json item to the place schema."""
+    """Keyword search ranks around `near` through Naver Map's autocomplete, with distances."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+
+    response = await _call(
+        hass,
+        "search_place",
+        {"query": "스타벅스", "near": {"latitude": 37.4979, "longitude": 127.0276}},
+    )
+
+    assert [r["place_name"] for r in response["results"]] == [
+        "스타벅스 강남R점",
+        "스타벅스 강남역점",
+    ]
+    assert response["results"][0]["place_id"] == "1086067689"
+    assert response["results"][0]["distance"] == 77
+    assert aioclient_mock.mock_calls[0][1].query["coords"] == "37.4979,127.0276"
+    assert aioclient_mock.call_count == 1  # the official search is only a fallback
+
+
+async def test_search_place_defaults_to_home(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Without `near`, keyword search ranks around the home location."""
+    hass.config.latitude, hass.config.longitude = 37.5665, 126.978
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+
+    await _call(hass, "search_place", {"query": "스타벅스"})
+
+    assert aioclient_mock.mock_calls[0][1].query["coords"] == "37.5665,126.978"
+
+
+async def test_search_place_falls_back_to_local_search(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """When the autocomplete fails, the official local.json search answers instead."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM, FAR_ITEM]})
 
     response = await _call(hass, "search_place", {"query": "스타벅스"})
 
     assert [r["place_name"] for r in response["results"]] == ["스타벅스 판교점", "스타벅스 정자점"]
     assert response["results"][0]["latitude"] == 37.3945
-    assert aioclient_mock.mock_calls[0][3]["X-Naver-Client-Id"] == "search-id"
+    assert aioclient_mock.mock_calls[1][3]["X-Naver-Client-Id"] == "search-id"
 
 
 async def test_search_place_no_results(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """An empty result set raises a no_results validation error naming the query."""
+    """Nothing from the autocomplete or the fallback raises no_results naming the query."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json={"ac": [], "place": []})
     aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": []})
 
     with pytest.raises(ServiceValidationError) as err:
@@ -90,7 +126,8 @@ async def test_search_place_no_results(
 async def test_search_place_api_error(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """An HTTP failure surfaces as the api_error HomeAssistantError."""
+    """Both searches failing surfaces as the api_error HomeAssistantError."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)
     aioclient_mock.get(LOCAL_SEARCH_URL, status=500)
 
     with pytest.raises(HomeAssistantError) as err:
