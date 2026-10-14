@@ -79,10 +79,17 @@ const PERSIST_DELAY = 400; // ms; batches rapid edits into one user-data write
 const REALTIME_MAX_AGE = 60000; // ms; arrivals are re-read on selection after this
 const LOCATE_TIMEOUT = 8000; // ms to wait for the device position
 const START_ZOOM = 15;
-// Bottom-sheet snap heights on phone widths, as fractions of the panel height
-// (min is a fixed height that keeps the handle and the first row visible).
-const SHEET_MIN_PX = 132;
-const SHEET_SNAPS = { peek: 0.45, full: 0.88 };
+// Bottom-sheet snaps on phone widths. "min" fits the open tab's controls
+// exactly (measured), "peek" shows results with the map still in view, and
+// "full" leaves a strip of map so the handle stays reachable.
+const SHEET = {
+  minFloor: 96, // px, when there is nothing to measure yet
+  peekRatio: 0.42, // of the height the map and sheet share
+  peekExtra: 160, // px of results peek shows at least, below the controls
+  peekCap: 0.6,
+  mapStrip: 72, // px of map left above a full sheet
+  foldBelow: 0.6, // dragged under this share of "min" folds the sheet away
+};
 // Transit vehicle-type filters; the key is the route's sorted vehicle types.
 const TRANSIT_FILTERS = ["all", "bus", "subway", "bus+subway"];
 const TRANSIT_SORTS = {
@@ -412,7 +419,8 @@ class NaverMapPanel extends HTMLElement {
     this._activeSaved = null; // saved favorite whose details are shown
     this._drag = null;
     this._here = null; // device position [lat, lng], when the browser shares it
-    this._sheet = "peek";
+    this._sheet = "min";
+    this._open = false; // the panel starts folded: map only, no tab content
   }
 
   set hass(hass) {
@@ -457,7 +465,7 @@ class NaverMapPanel extends HTMLElement {
     this._root = this.attachShadow({ mode: "open" });
     this._root.innerHTML = `
       <style>${STYLE}</style>
-      <div class="layout">
+      <div class="layout closed">
         <nav class="nav"><span class="menu"></span><div class="nav-tabs"></div></nav>
         <section class="sheet">
           <div class="handle" title=""><span></span></div>
@@ -506,16 +514,63 @@ class NaverMapPanel extends HTMLElement {
     this._applySheet();
   }
 
+  // Snap heights for the open tab, from what is on screen right now.
+  _sheetHeights() {
+    const nav = this._root.querySelector(".nav").offsetHeight;
+    const shared = this._layout.clientHeight - nav; // map + sheet
+    const handle = this._root.querySelector(".handle").offsetHeight;
+    const head = this._content.querySelector(".sheet-head")?.offsetHeight;
+    // handle + content padding (4 top, 12 below the controls)
+    const min = Math.max(SHEET.minFloor, head ? Math.ceil(handle + 4 + head + 12) : 0);
+    const full = Math.max(min, shared - SHEET.mapStrip);
+    const peek = Math.min(
+      full,
+      Math.max(min + SHEET.peekExtra, Math.min(shared * SHEET.peekRatio, shared * SHEET.peekCap))
+    );
+    return { min, peek: Math.round(peek), full };
+  }
+
   // Phone layout: the sheet height decides how much map stays visible above it.
   _applySheet(px) {
     if (!this._compact) {
       this._layout.style.removeProperty("--sheet-h");
       return;
     }
-    const height = this.clientHeight;
-    const snapPx =
-      this._sheet === "min" ? SHEET_MIN_PX : Math.round(height * SHEET_SNAPS[this._sheet]);
-    this._layout.style.setProperty("--sheet-h", `${px ?? snapPx}px`);
+    if (!this._open) {
+      this._layout.style.setProperty("--sheet-h", "0px");
+      return;
+    }
+    this._layout.style.setProperty("--sheet-h", `${px ?? this._sheetHeights()[this._sheet]}px`);
+  }
+
+  // The snap a tab opens at: just its controls, or results when it has some.
+  _defaultSheet() {
+    const hasResults = {
+      place: this._places.length > 0,
+      route: Boolean(this._route),
+      saved: this._savedLeaves().length > 0,
+    };
+    return hasResults[this._tab] ? "peek" : "min";
+  }
+
+  _openTab(tab) {
+    this._tab = tab;
+    this._open = true;
+    this._picking = null;
+    this._error = null;
+    this._layout.classList.remove("closed");
+    this._sheet = this._defaultSheet();
+    this._render();
+    this._drawMap();
+  }
+
+  // Fold the tab away entirely; the map keeps what it shows.
+  _closeTab() {
+    this._open = false;
+    this._picking = null;
+    this._layout.classList.add("closed");
+    this._render();
+    this._applySheet();
   }
 
   _setSheet(state) {
@@ -528,7 +583,12 @@ class NaverMapPanel extends HTMLElement {
     let start = null;
     handle.addEventListener("pointerdown", (ev) => {
       if (!this._compact) return;
-      start = { y: ev.clientY, h: this._root.querySelector(".sheet").offsetHeight, moved: false };
+      start = {
+        y: ev.clientY,
+        h: this._root.querySelector(".sheet").offsetHeight,
+        heights: this._sheetHeights(),
+        moved: false,
+      };
       handle.setPointerCapture(ev.pointerId);
       this._layout.classList.add("dragging");
     });
@@ -536,29 +596,30 @@ class NaverMapPanel extends HTMLElement {
       if (!start) return;
       const dy = start.y - ev.clientY;
       if (Math.abs(dy) > 4) start.moved = true;
-      const max = this.clientHeight * SHEET_SNAPS.full;
-      this._applySheet(Math.min(max, Math.max(SHEET_MIN_PX, start.h + dy)));
+      this._applySheet(Math.min(start.heights.full, Math.max(0, start.h + dy)));
     });
     const end = () => {
       if (!start) return;
       const height = this._root.querySelector(".sheet").offsetHeight;
+      const { heights } = start;
       const order = ["min", "peek", "full"];
       let state;
       if (!start.moved) {
         // A tap steps through the snaps: min → peek → full → peek.
         state = this._sheet === "full" ? "peek" : order[order.indexOf(this._sheet) + 1];
+      } else if (height < heights.min * SHEET.foldBelow) {
+        state = null; // dragged well below the controls: fold away
       } else {
-        const targets = {
-          min: SHEET_MIN_PX,
-          peek: this.clientHeight * SHEET_SNAPS.peek,
-          full: this.clientHeight * SHEET_SNAPS.full,
-        };
         state = order.reduce((best, s) =>
-          Math.abs(targets[s] - height) < Math.abs(targets[best] - height) ? s : best
+          Math.abs(heights[s] - height) < Math.abs(heights[best] - height) ? s : best
         );
       }
       start = null;
       this._layout.classList.remove("dragging");
+      if (state === null) {
+        this._closeTab();
+        return;
+      }
       this._sheet = state;
       this._applySheet();
     };
@@ -1118,11 +1179,9 @@ class NaverMapPanel extends HTMLElement {
     const index = Number(el.dataset.index);
     switch (action) {
       case "tab":
-        this._tab = el.dataset.tab;
-        this._picking = null;
-        this._error = null;
-        this._render();
-        this._drawMap();
+        // The open tab's button folds it; any other opens that tab.
+        if (this._open && this._tab === el.dataset.tab) this._closeTab();
+        else this._openTab(el.dataset.tab);
         break;
       case "place-search":
         this._searchPlaces();
@@ -1146,7 +1205,7 @@ class NaverMapPanel extends HTMLElement {
           break;
         }
         const label = this._leafName(leaf);
-        this._tab = "route";
+        this._openTab("route");
         this._queries[slot] = label;
         this._setPoint(slot, {
           label,
@@ -1185,7 +1244,7 @@ class NaverMapPanel extends HTMLElement {
         break;
       case "place-use": {
         const place = this._places[index];
-        this._tab = "route";
+        this._openTab("route");
         this._queries[slot] = place.place_name;
         this._setPoint(slot, {
           label: place.place_name,
@@ -1394,6 +1453,7 @@ class NaverMapPanel extends HTMLElement {
     try {
       const response = await this._callService("search_place", { query });
       this._results[slot] = response.results;
+      if (this._sheet === "min") this._sheet = "peek"; // room for the matches
     } catch (err) {
       this._results[slot] = [];
       this._error = err.message || String(err);
@@ -1421,6 +1481,7 @@ class NaverMapPanel extends HTMLElement {
       });
       if (requestId !== this._requestId) return; // a newer lookup superseded this one
       this._route = route;
+      if (this._sheet === "min") this._sheet = "peek";
       this._altIndex = 0;
       this._transitFilter = "all";
     } catch (err) {
@@ -1521,7 +1582,7 @@ class NaverMapPanel extends HTMLElement {
     const t = this._t;
     this._root.querySelector(".nav-tabs").innerHTML = TABS.map(
       (tab) =>
-        `<button data-action="tab" data-tab="${tab}" class="nav-tab ${tab === this._tab ? "active" : ""}" title="${t.tabs[tab]}">
+        `<button data-action="tab" data-tab="${tab}" class="nav-tab ${this._open && tab === this._tab ? "active" : ""}" title="${t.tabs[tab]}" aria-expanded="${this._open && tab === this._tab}">
           ${icon(tab)}<span>${t.tabs[tab]}</span>
         </button>`
     ).join("");
@@ -1530,7 +1591,9 @@ class NaverMapPanel extends HTMLElement {
       route: () => this._renderRouteTab(),
       saved: () => this._renderSavedTab(),
     };
-    this._content.innerHTML = renderers[this._tab]();
+    this._content.innerHTML = this._open ? renderers[this._tab]() : "";
+    // The controls' height may have changed ("min" fits them).
+    if (!this._layout.classList.contains("dragging")) this._applySheet();
   }
 
   _renderPlaceTab() {
@@ -1569,6 +1632,7 @@ class NaverMapPanel extends HTMLElement {
       )
       .join("");
     return `
+      <div class="sheet-head">
       <div class="searchbar">
         ${icon("search")}
         <input data-query="place" placeholder="${escapeHtml(t.searchPlaceholder)}" value="${escapeHtml(this._placeQuery)}" enterkeyhint="search">
@@ -1582,6 +1646,7 @@ class NaverMapPanel extends HTMLElement {
         )
         .join("")}</div>
       ${this._nearbyCategory ? `<small>${escapeHtml(t.nearbyOf(this._startLocation().name))}</small>` : ""}
+      </div>
       ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
       ${places ? `<ul class="list">${places}</ul>` : ""}`;
   }
@@ -1601,12 +1666,14 @@ class NaverMapPanel extends HTMLElement {
     const folders = tree.filter((n) => n.kind === "folder");
     const editing = this._editing;
     const toolbar = `
+      <div class="sheet-head">
       <div class="saved-toolbar">
         ${editing ? `<button class="chip" data-action="folder-new">${icon("folderNew")}${t.newFolder}</button>` : ""}
         <span class="spacer"></span>
         <button class="chip ${editing ? "active" : ""}" data-action="saved-edit">${icon(editing ? "done" : "edit")}${editing ? t.done : t.edit}</button>
       </div>
-      ${editing ? `<small>${t.dragHint}</small>` : ""}`;
+      ${editing ? `<small>${t.dragHint}</small>` : ""}
+      </div>`;
     const nodes = tree
       .map((node) =>
         node.kind === "folder" ? this._renderFolder(node, folders) : this._renderLeaf(node, folders, null)
@@ -1753,6 +1820,7 @@ class NaverMapPanel extends HTMLElement {
         </button>`
     ).join("");
     return `
+      <div class="sheet-head">
       <div class="points">
         <div class="point-rows">
           ${this._renderSlot("origin", entities)}
@@ -1760,10 +1828,11 @@ class NaverMapPanel extends HTMLElement {
         </div>
         <button class="icon-btn swap" data-action="swap" title="${t.swap}">${icon("swap")}</button>
       </div>
+      <div class="modes">${modes}</div>
+      ${this._picking ? `<p class="hint">${t.pickingHint}</p>` : ""}
+      </div>
       ${this._renderSlotResults("origin")}
       ${this._renderSlotResults("destination")}
-      ${this._picking ? `<p class="hint">${t.pickingHint}</p>` : ""}
-      <div class="modes">${modes}</div>
       ${this._renderResult()}`;
   }
 
@@ -2012,6 +2081,10 @@ const STYLE = `
   .handle { display: none; }
   .content { flex: 1; overflow-y: auto; padding: 12px 12px calc(12px + var(--safe-area-inset-bottom, 0px));
     display: flex; flex-direction: column; gap: 12px; }
+  .sheet-head { display: flex; flex-direction: column; gap: 12px; flex: none; }
+  /* Folded: no tab content; the map takes the space. */
+  .layout.closed { grid-template-columns: var(--rail-w) 0 minmax(0, 1fr); }
+  .layout.closed .sheet { display: none; }
   .map { grid-area: map; position: relative; min-height: 0; }
   .map ha-map { display: block; height: 100%; }
   .locate { position: absolute; right: 12px; bottom: 28px; z-index: 1; width: 44px; height: 44px;
@@ -2019,9 +2092,10 @@ const STYLE = `
     background: var(--card-background-color); color: var(--primary-color); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
 
   /* Phone: map above a draggable bottom sheet, bottom tab bar */
-  :host(.compact) .layout { grid-template-columns: minmax(0, 1fr);
+  :host(.compact) .layout, :host(.compact) .layout.closed { grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 1fr var(--sheet-h, 45%) calc(var(--nav-h) + var(--safe-area-inset-bottom, 0px)); grid-template-areas: "map" "sheet" "nav"; }
   :host(.compact) .layout:not(.dragging) { transition: grid-template-rows 0.2s ease; }
+  :host(.compact) .layout.closed { grid-template-rows: 1fr 0 calc(var(--nav-h) + var(--safe-area-inset-bottom, 0px)); }
   :host(.compact) .nav { flex-direction: row; justify-content: center; border-right: none;
     padding: 0 0 var(--safe-area-inset-bottom, 0px);
     border-top: 1px solid var(--divider-color); }

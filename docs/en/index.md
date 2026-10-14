@@ -47,7 +47,7 @@ NCP Maps is a paid service with a monthly free quota; check the current pricing 
 
 Adding the integration puts a **Naver Map** entry in the sidebar (all users, not only admins). It has three tabs.
 
-On phone widths the map sits above a bottom sheet you can drag between three heights, with the tabs in a bottom bar; on tablets and desktops a side panel with an icon rail sits next to the map.
+The panel opens on the map alone: tap a tab to open it, and tap the open tab again to fold it away (the map keeps what it shows, e.g. a route line). On phone widths the tab opens as a bottom sheet just tall enough for its controls, grows when results arrive, and can be dragged taller, or down to fold it; on tablets and desktops it opens as a side panel next to the map.
 
 **Places** — search a place, or tap a category (restaurants, cafes, convenience stores, pharmacies, …) to list places within 1 km of you (your person's location, else home); every result is marked on the map with its distance. Pick a result to zoom to it and see its Naver Place summary (photos, opening status, review counts, booking/order availability), open it in Naver Map, or send it to the **Directions** tab with **Origin** / **Destination**.
 
