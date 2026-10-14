@@ -12,17 +12,13 @@ DOMAIN: Final = "naver_map"
 # loading (see llm_registration.py's module docstring).
 API_NAME: Final = "Naver Map"
 
-# Config entry keys for the NAVER Cloud Platform Maps credentials. The Naver
-# Developers search credentials use HA's CONF_CLIENT_ID / CONF_CLIENT_SECRET.
+# Config entry keys for the NAVER Cloud Platform Maps credentials, the only
+# credentials the integration needs.
 CONF_NCP_KEY_ID: Final = "ncp_key_id"
 CONF_NCP_KEY: Final = "ncp_key"
 
-# Naver Developers Search API (headers X-Naver-Client-Id / X-Naver-Client-Secret).
-LOCAL_SEARCH_URL: Final = "https://openapi.naver.com/v1/search/local.json"
-
 # NAVER Cloud Platform Maps API (headers x-ncp-apigw-api-key-id / x-ncp-apigw-api-key).
 GEOCODE_URL: Final = "https://maps.apigw.ntruss.com/map-geocode/v2/geocode"
-REVERSE_GEOCODE_URL: Final = "https://maps.apigw.ntruss.com/map-reversegeocode/v2/gc"
 DRIVING_URL: Final = "https://maps.apigw.ntruss.com/map-direction/v1/driving"
 
 # Naver Map web URLs (no API key required, open map.naver.com pages)
@@ -72,11 +68,10 @@ DIRECTIONS_LINK_MODES: Final = {
 SAVED_PLACES_KEY: Final = "naver_map_saved"
 
 MAX_WAYPOINTS: Final = 5  # Directions 5 limit
-MAX_SEARCH_RESULTS: Final = 5  # local.json `display` cap
+MAX_SEARCH_RESULTS: Final = 5  # keyword-search results kept from the autocomplete
 
-# Nearby search (search_nearby): center point + category or keyword within a radius.
-# local.json has no coordinate parameters, so the center is reverse-geocoded to a
-# region name that prefixes the keyword, and results are filtered by distance.
+# Nearby search (search_nearby): center point + category or keyword within a radius,
+# through Naver Map's autocomplete around the center; results are filtered by distance.
 DEFAULT_NEARBY_RADIUS: Final = 1000  # meters
 MAX_NEARBY_RADIUS: Final = 20000  # meters
 # Friendly category slugs exposed to users, mapped to the Korean keyword searched.

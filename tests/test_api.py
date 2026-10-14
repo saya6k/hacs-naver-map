@@ -13,7 +13,6 @@ from custom_components.naver_map.api import (
     InvalidApiKey,
     NaverMapRouteApi,
     NaverPlaceApi,
-    NaverSearchApi,
     NcpMapsApi,
     RouteResult,
     TransitResult,
@@ -24,9 +23,7 @@ from custom_components.naver_map.const import (
     DRIVING_URL,
     GEOCODE_URL,
     INSTANT_SEARCH_URL,
-    LOCAL_SEARCH_URL,
     PLACE_SUMMARY_URL,
-    REVERSE_GEOCODE_URL,
     SUBWAY_ARRIVALS_URL,
     TRANSIT_ROUTE_URL,
     WALK_ROUTE_URL,
@@ -38,8 +35,6 @@ from tests.const import (
     CAPTCHA_RESPONSE,
     INSTANT_SEARCH_RESPONSE,
     PLACE_SUMMARY_RESPONSE,
-    REGION_RESPONSE,
-    STARBUCKS_ITEM,
     SUBWAY_ARRIVALS_RESPONSE,
 )
 from tests.vendor.aiohttp_mock import AiohttpClientMocker, AiohttpClientMockResponse
@@ -49,41 +44,12 @@ DESTINATION = ResolvedPoint(name="도착지", latitude=37.5006, longitude=127.03
 VIA = ResolvedPoint(name="경유지1", latitude=37.499, longitude=127.03)
 
 
-def _search_api(hass: HomeAssistant) -> NaverSearchApi:
-    return NaverSearchApi(async_get_clientsession(hass), "search-id", "search-secret")
-
-
 def _maps_api(hass: HomeAssistant) -> NcpMapsApi:
     return NcpMapsApi(async_get_clientsession(hass), "ncp-id", "ncp-key")
 
 
 def _route_api(hass: HomeAssistant) -> NaverMapRouteApi:
     return NaverMapRouteApi(async_get_clientsession(hass))
-
-
-async def test_search_local_sends_credentials_and_returns_items(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    """local.json is called with the client headers and display=5."""
-    aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
-
-    items = await _search_api(hass).async_search_local("스타벅스")
-
-    assert items == [STARBUCKS_ITEM]
-    _method, url, _data, headers = aioclient_mock.mock_calls[0]
-    assert url.query == {"query": "스타벅스", "display": "5"}
-    assert headers["X-Naver-Client-Id"] == "search-id"
-    assert headers["X-Naver-Client-Secret"] == "search-secret"
-
-
-async def test_search_local_401_raises_invalid_api_key(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    """A rejected search credential raises InvalidApiKey."""
-    aioclient_mock.get(LOCAL_SEARCH_URL, status=401)
-
-    with pytest.raises(InvalidApiKey):
-        await _search_api(hass).async_search_local("스타벅스")
 
 
 async def test_geocode_sends_ncp_headers_and_returns_addresses(
@@ -108,31 +74,6 @@ async def test_geocode_401_raises_invalid_api_key(
 
     with pytest.raises(InvalidApiKey):
         await _maps_api(hass).async_geocode("불정로 6")
-
-
-async def test_region_name_joins_area2_and_area3(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    """Reverse geocoding yields the `시/군/구 읍/면/동` prefix for keyword searches."""
-    aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
-
-    name = await _maps_api(hass).async_region_name(127.1112, 37.3945)
-
-    assert name == "성남시 분당구 삼평동"
-    url = aioclient_mock.mock_calls[0][1]
-    assert url.query["coords"] == "127.1112,37.3945"
-    assert url.query["orders"] == "legalcode"
-
-
-async def test_region_name_none_without_results(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
-) -> None:
-    """A point with no region (e.g. at sea) yields None."""
-    aioclient_mock.get(
-        REVERSE_GEOCODE_URL, json={"status": {"code": 3, "name": "no results"}, "results": []}
-    )
-
-    assert await _maps_api(hass).async_region_name(130.0, 35.0) is None
 
 
 async def test_driving_route_parses_ms_duration_and_joins_waypoints(

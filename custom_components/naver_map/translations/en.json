@@ -3,42 +3,32 @@
   "config": {
     "step": {
       "user": {
-        "description": "The NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
+        "description": "Create an application in [NCP console → Maps → Application]({ncp_url}), enable **Geocoding** and **Directions 5**, and enter its key ID and key. They are used for geocoding and car directions.\n\nEverything else needs no keys: keyword and nearby search, transit, walking, and cycling directions (with alternatives and steps), place details, and live arrivals use Naver Map's web (unofficial) and may stop working if Naver changes or blocks it.",
         "data": {
           "ncp_key_id": "NCP Maps API Key ID",
-          "ncp_key": "NCP Maps API Key",
-          "client_id": "Naver Developers Client ID (optional)",
-          "client_secret": "Naver Developers Client Secret (optional)"
+          "ncp_key": "NCP Maps API Key"
         },
         "data_description": {
-          "ncp_key_id": "Required. Key ID of an NCP Maps application with Geocoding, Reverse Geocoding, and Directions 5 enabled.",
-          "ncp_key": "Required. The same application's key.",
-          "client_id": "Optional. A Naver Developers application with the Search API. Left empty, keyword and nearby search rely only on the unofficial autocomplete (see above).",
-          "client_secret": "Optional. Enter it together with the Client ID, or leave both empty."
+          "ncp_key_id": "Key ID of an NCP Maps application with Geocoding and Directions 5 enabled.",
+          "ncp_key": "The same application's key."
         }
       },
       "reconfigure": {
         "title": "Change credentials",
-        "description": "Change the credentials, or add or drop the optional search keys.\n\nThe NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
+        "description": "Change the NCP Maps keys.\n\nCreate an application in [NCP console → Maps → Application]({ncp_url}), enable **Geocoding** and **Directions 5**, and enter its key ID and key. They are used for geocoding and car directions.\n\nEverything else needs no keys: keyword and nearby search, transit, walking, and cycling directions (with alternatives and steps), place details, and live arrivals use Naver Map's web (unofficial) and may stop working if Naver changes or blocks it.",
         "data": {
           "ncp_key_id": "NCP Maps API Key ID",
-          "ncp_key": "NCP Maps API Key",
-          "client_id": "Naver Developers Client ID (optional)",
-          "client_secret": "Naver Developers Client Secret (optional)"
+          "ncp_key": "NCP Maps API Key"
         },
         "data_description": {
-          "ncp_key_id": "Required. Key ID of an NCP Maps application with Geocoding, Reverse Geocoding, and Directions 5 enabled.",
-          "ncp_key": "Required. The same application's key.",
-          "client_id": "Optional. A Naver Developers application with the Search API. Left empty, keyword and nearby search rely only on the unofficial autocomplete (see above).",
-          "client_secret": "Optional. Enter it together with the Client ID, or leave both empty."
+          "ncp_key_id": "Key ID of an NCP Maps application with Geocoding and Directions 5 enabled.",
+          "ncp_key": "The same application's key."
         }
       }
     },
     "error": {
-      "invalid_search_auth": "Naver Developers rejected the Client ID/Secret (HTTP 401).",
       "invalid_ncp_auth": "NAVER Cloud Platform rejected the Maps API key (HTTP 401). Check the key and that Geocoding is enabled for the application.",
-      "cannot_connect": "Could not reach the Naver API. Check your network and try again.",
-      "search_keys_incomplete": "Enter the Client ID and Client Secret together, or leave both empty."
+      "cannot_connect": "Could not reach the Naver API. Check your network and try again."
     },
     "abort": {
       "reconfigure_successful": "The credentials were updated."
