@@ -32,6 +32,13 @@ STEP_USER_SCHEMA = vol.Schema(
     }
 )
 
+# Where the keys are issued; passed into the form text as placeholders
+# (translation strings must not contain URLs themselves).
+KEY_LINKS = {
+    "ncp_url": "https://console.ncloud.com/maps/application",
+    "developers_url": "https://developers.naver.com/apps/#/register?api=search",
+}
+
 # Any query works for validating the credentials; we only care about the HTTP status.
 VALIDATION_QUERY = "네이버"
 VALIDATION_ADDRESS = "분당구 불정로 6"
@@ -63,6 +70,7 @@ class NaverMapConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=self.add_suggested_values_to_schema(STEP_USER_SCHEMA, user_input),
             errors=errors,
+            description_placeholders=KEY_LINKS,
         )
 
     async def async_step_reconfigure(
@@ -84,6 +92,7 @@ class NaverMapConfigFlow(ConfigFlow, domain=DOMAIN):
                 STEP_USER_SCHEMA, user_input or dict(entry.data)
             ),
             errors=errors,
+            description_placeholders=KEY_LINKS,
         )
 
     async def _async_validate(self, data: dict[str, Any]) -> str | None:

@@ -155,3 +155,30 @@ async def test_secret_fields_are_masked(hass: HomeAssistant) -> None:
 
     for name in ("ncp_key", "client_secret"):
         assert fields[name].config["type"] == "password", name
+
+
+async def test_forms_link_to_where_the_keys_are_issued(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Both forms pass the NCP console and Naver Developers URLs into their text."""
+    user = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    entry = MockConfigEntry(domain=DOMAIN, data=NCP_ONLY, unique_id="other")
+    entry.add_to_hass(hass)
+    reconfigure = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": config_entries.SOURCE_RECONFIGURE, "entry_id": entry.entry_id},
+    )
+    translations = await async_get_translations(hass, "ko", "config", [DOMAIN])
+
+    for result in (user, reconfigure):
+        placeholders = result["description_placeholders"]
+        assert placeholders["ncp_url"] == "https://console.ncloud.com/maps/application"
+        assert placeholders["developers_url"].startswith("https://developers.naver.com/apps")
+    for step in ("user", "reconfigure"):
+        text = translations[f"component.{DOMAIN}.config.step.{step}.description"]
+        assert "{ncp_url}" in text
+        assert "{developers_url}" in text
+        # Routes other than car never needed the search keys; the form says so.
+        assert "대중교통" in text

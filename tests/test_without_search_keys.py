@@ -12,6 +12,7 @@ from custom_components.naver_map.const import (
     DOMAIN,
     INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
+    TRANSIT_ROUTE_URL,
 )
 from tests.const import INSTANT_SEARCH_RESPONSE
 from tests.vendor.aiohttp_mock import AiohttpClientMocker
@@ -82,3 +83,26 @@ async def test_search_nearby_has_no_official_fallback(
 
     assert err.value.translation_key == "api_error"
     assert aioclient_mock.call_count == 1
+
+
+async def test_transit_directions_need_no_search_keys(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Transit (like walk and bicycle) routes use Naver Map's web routes, not the search keys."""
+    aioclient_mock.get(
+        TRANSIT_ROUTE_URL,
+        json={"paths": [{"duration": 50, "distance": 24700, "fare": 3200, "transferCount": 1}]},
+    )
+
+    response = await _call(
+        hass,
+        "get_directions",
+        {
+            "origin": {"latitude": 37.5665, "longitude": 126.978},
+            "destination": {"latitude": 37.3945, "longitude": 127.1112},
+            "mode": "transit",
+        },
+    )
+
+    assert response["duration"] == 3000
+    assert response["fare"] == 3200
