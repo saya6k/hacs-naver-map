@@ -14,17 +14,13 @@ from custom_components.naver_map.const import (
     DRIVING_URL,
     GEOCODE_URL,
     INSTANT_SEARCH_URL,
-    LOCAL_SEARCH_URL,
     PLACE_SUMMARY_URL,
-    REVERSE_GEOCODE_URL,
 )
 from tests.const import (
     ADDRESS_ITEM,
     ENTRY_DATA,
     INSTANT_SEARCH_RESPONSE,
     PLACE_SUMMARY_RESPONSE,
-    REGION_RESPONSE,
-    STARBUCKS_ITEM,
 )
 from tests.vendor.aiohttp_mock import AiohttpClientMocker
 from tests.vendor.ha_common import MockConfigEntry
@@ -98,23 +94,22 @@ async def test_search_place_tool_returns_places_and_cards(
 ) -> None:
     """search_place returns the formatted place list plus one card per result."""
     await _setup_integration(hass)
-    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)  # official-search fallback
-    aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
     instance = await _get_api_instance(hass)
 
     tool = next(tool for tool in instance.tools if tool.name == "naver_map__search_place")
     result = await tool.async_call(
         hass,
-        llm.ToolInput(tool_name=tool.name, tool_args={"query": "판교 스타벅스"}),
+        llm.ToolInput(tool_name=tool.name, tool_args={"query": "강남 스타벅스"}),
         _llm_context(),
     )
 
     assert isinstance(result, llm.ToolResult)
     assert not result.error
     assert result.data["source"] == "naver_map"
-    assert result.data["places"][0]["place_name"] == "스타벅스 판교점"
-    assert len(result.data["results"]) == 1
-    assert result.data["results"][0]["title"] == "스타벅스 판교점"
+    assert result.data["places"][0]["place_name"] == "스타벅스 강남R점"
+    assert len(result.data["results"]) == 2
+    assert result.data["results"][0]["title"] == "스타벅스 강남R점"
     assert result.data["results"][0]["image_url"].startswith("data:image/svg+xml;base64,")
 
 
@@ -124,7 +119,6 @@ async def test_search_place_tool_no_results(
     """search_place raises a validation error when nothing matches."""
     await _setup_integration(hass)
     aioclient_mock.get(INSTANT_SEARCH_URL, json={"ac": [], "place": []})
-    aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": []})
     instance = await _get_api_instance(hass)
 
     with pytest.raises(ServiceValidationError) as err:
@@ -143,11 +137,9 @@ async def test_search_nearby_tool_by_category(
     """search_nearby resolves an entity center and searches by category."""
     await _setup_integration(hass)
     hass.states.async_set(
-        "zone.home", "zoning", {"latitude": 37.3935, "longitude": 127.1112, "friendly_name": "집"}
+        "zone.home", "zoning", {"latitude": 37.4979, "longitude": 127.0276, "friendly_name": "집"}
     )
-    aioclient_mock.get(INSTANT_SEARCH_URL, status=500)  # official-API fallback
-    aioclient_mock.get(REVERSE_GEOCODE_URL, json=REGION_RESPONSE)
-    aioclient_mock.get(LOCAL_SEARCH_URL, json={"items": [STARBUCKS_ITEM]})
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
     instance = await _get_api_instance(hass)
 
     result = await instance.async_call_tool(
@@ -157,8 +149,8 @@ async def test_search_nearby_tool_by_category(
         )
     )
 
-    assert result.data["places"][0]["place_name"] == "스타벅스 판교점"
-    assert result.data["places"][0]["distance"] == 111
+    assert result.data["places"][0]["place_name"] == "스타벅스 강남R점"
+    assert result.data["places"][0]["distance"] == 77
     assert result.data["center"]["name"] == "집"
 
 

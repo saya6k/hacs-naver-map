@@ -4,7 +4,7 @@
 
 > 영어 문서가 원본입니다 — [English](../en/index.md).
 
-네이버 검색 API, NAVER Cloud Platform Maps, 네이버 지도 웹/내부 API로 **장소 검색**, **주변 검색**,
+NAVER Cloud Platform Maps와 네이버 지도 웹/내부 API로 **장소 검색**, **주변 검색**,
 **주소 좌표 변환**, **길찾기**(네이버 지도 링크 + 소요시간)를 제공하는 Home Assistant 커스텀 통합입니다. 한국 사용자용.
 
 > **지도 타일 교체는 지원하지 않습니다.** 경로 패널은 Home Assistant 기본 지도(OpenStreetMap 타일) 위에 그리며, 타일을 바꾸거나 HA 프런트엔드 지도를 패치하지 않습니다.
@@ -35,14 +35,13 @@
 
 ## 설정
 
-설정 흐름에서 NAVER Cloud Platform 키(필수)와, 선택 사항인 Naver Developers 검색 키를 받습니다. 항목은 하나만 등록할 수 있으며, 키는 나중에 **재구성**에서 바꿀 수 있습니다.
+설정 흐름에서 NAVER Cloud Platform 키 한 쌍만 받습니다. 항목은 하나만 등록할 수 있으며, 키는 나중에 **재구성**에서 바꿀 수 있습니다.
 
 | 인증 정보 | 발급처 | 용도 |
 |---|---|---|
-| **API Key ID / API Key** (필수) | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, **Geocoding**·**Reverse Geocoding**·**Directions 5** 활성화 | `geocode_address`, `get_directions`(자동차), `search_nearby` 대체 경로의 지역 조회 |
-| **Client ID / Client Secret** (선택) | [Naver Developers](https://developers.naver.com/apps/) → 애플리케이션 등록 → **검색** API 선택 | `search_place`의 공식 키워드 검색, `search_nearby`의 대체 경로 |
+| **API Key ID / API Key** | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, **Geocoding**·**Directions 5** 활성화 | `geocode_address`, `get_directions`(자동차) |
 
-키워드·주변 검색은 네이버 지도 웹의 (비공식) 자동완성을 사용하며, 네이버 지도 앱처럼 기준 지점 근처 장소를 우선합니다. **검색 키는 그 자동완성이 실패했을 때 공식 검색 API로 대신 조회하는 대체 경로**를 더해 줍니다. **키 없이 쓰면** 네이버가 자동완성을 차단하거나 바꿨을 때 두 검색이 멈춥니다. 그 밖의 기능은 똑같이 동작하며, 설정 화면에도 같은 내용이 표시됩니다.
+그 밖의 기능은 키가 필요 없습니다. 키워드·주변 검색, 대중교통·도보·자전거 길찾기, 플레이스 정보, 실시간 도착은 네이버 지도 웹(비공식)을 사용하므로, 네이버가 이를 바꾸거나 막으면 동작하지 않을 수 있습니다. 설정 화면에도 같은 내용과 NCP 콘솔 링크가 표시됩니다.
 
 NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다(작성 시점 기준 예: Directions 5 월 6만 회, Geocoding 월 300만 회). 최신 요금은 NCP 콘솔에서 확인하세요. 자동차 길찾기나 주소 변환이 실패하면 [NCP 서비스 상태](https://www.ncloud.com/serviceStatus/)를 확인하세요.
 
@@ -116,7 +115,7 @@ response_variable: nearby
 
 카테고리(18종): `cafe`, `restaurant`, `convenience_store`, `supermarket`, `hospital`, `pharmacy`, `subway_station`, `bank`, `gas_station`, `parking`, `academy`, `school`, `daycare`, `cultural_facility`, `real_estate`, `public_institution`, `tourist_attraction`, `accommodation`. UI에서는 현지화된 이름(카페, 맛집, …)으로 표시되며, 각각 한국어 키워드로 검색됩니다.
 
-동작 방식: 네이버 지도의 (비공개) 자동완성에 중심 좌표 주변의 키워드를 물어 `place_id`가 있는 장소를 **최대 10건** 받고, `radius` 밖의 결과를 제외합니다. 이 조회가 실패하면 공식 지역 검색 API로 전환합니다. 이 API는 좌표를 받지 않으므로 중심 지점을 역지오코딩해 행정구역(예: `성남시 분당구 삼평동`) 안에서 키워드를 검색하며 결과는 **최대 5건**입니다.
+동작 방식: 네이버 지도의 (비공개) 자동완성에 중심 좌표 주변의 키워드를 물어 `place_id`가 있는 장소를 **최대 10건** 받고, `radius` 밖의 결과를 제외합니다. 조회가 실패(예: 차단)하면 오류가 납니다.
 
 ### `naver_map.geocode_address`
 

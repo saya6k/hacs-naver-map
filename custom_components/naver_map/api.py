@@ -1,4 +1,4 @@
-"""Clients for the Naver Search API, NCP Maps API, and Naver Map internal routes."""
+"""Clients for the NCP Maps API and Naver Map's internal (web) endpoints."""
 
 from __future__ import annotations
 
@@ -21,10 +21,7 @@ from .const import (
     DRIVING_URL,
     GEOCODE_URL,
     INSTANT_SEARCH_URL,
-    LOCAL_SEARCH_URL,
-    MAX_SEARCH_RESULTS,
     PLACE_SUMMARY_URL,
-    REVERSE_GEOCODE_URL,
     ROUTE_API_HEADERS,
     SUBWAY_ARRIVAL_COUNT,
     SUBWAY_ARRIVALS_URL,
@@ -68,30 +65,6 @@ async def _async_get_json(
         raise InvalidApiKey
     resp.raise_for_status()
     return await resp.json(content_type=None)
-
-
-class NaverSearchApi:
-    """Async client for the Naver Developers local search endpoint."""
-
-    def __init__(
-        self, session: aiohttp.ClientSession, client_id: str, client_secret: str
-    ) -> None:
-        """Store the shared session and the Naver Developers credentials."""
-        self._session = session
-        self._headers = {
-            "X-Naver-Client-Id": client_id,
-            "X-Naver-Client-Secret": client_secret,
-        }
-
-    async def async_search_local(self, query: str) -> list[dict[str, Any]]:
-        """Search places by keyword and return raw local.json items (max 5)."""
-        data = await _async_get_json(
-            self._session,
-            LOCAL_SEARCH_URL,
-            {"query": query, "display": MAX_SEARCH_RESULTS},
-            self._headers,
-        )
-        return list(data["items"])
 
 
 # A route line as [lat, lng] points (WGS84), or None when it could not be read.
@@ -282,7 +255,7 @@ def _coord(point: ResolvedPoint) -> str:
 
 
 class NcpMapsApi:
-    """Async client for NAVER Cloud Platform Maps (geocode, reverse geocode, driving)."""
+    """Async client for NAVER Cloud Platform Maps (geocode, driving)."""
 
     def __init__(self, session: aiohttp.ClientSession, key_id: str, key: str) -> None:
         """Store the shared session and the NCP API key pair."""
@@ -298,21 +271,6 @@ class NcpMapsApi:
             self._session, GEOCODE_URL, {"query": query}, self._headers
         )
         return list(data["addresses"])
-
-    async def async_region_name(self, longitude: float, latitude: float) -> str | None:
-        """Reverse-geocode a point to a `시/군/구 읍/면/동` name, or None if none."""
-        data = await _async_get_json(
-            self._session,
-            REVERSE_GEOCODE_URL,
-            {"coords": f"{longitude},{latitude}", "orders": "legalcode", "output": "json"},
-            self._headers,
-        )
-        results = data.get("results") or []
-        if not results:
-            return None
-        region = results[0]["region"]
-        names = [region[area]["name"] for area in ("area2", "area3") if region.get(area)]
-        return " ".join(name for name in names if name) or None
 
     async def async_get_driving_route(
         self,

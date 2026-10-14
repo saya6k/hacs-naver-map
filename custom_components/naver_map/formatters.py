@@ -6,7 +6,6 @@ place/address shapes and links.
 
 from __future__ import annotations
 
-import html
 import re
 from collections.abc import Sequence
 from datetime import datetime, timedelta
@@ -21,7 +20,6 @@ from .const import (
 )
 from .helpers import ResolvedPoint
 
-_TAG = re.compile(r"<[^>]+>")
 _NON_DIGIT = re.compile(r"\D")
 
 # map.naver.com packs each coordinate as base62(round(deg * 1e7) + 200 * 1e7).
@@ -30,34 +28,9 @@ _COORD_SCALE = 10**7
 _COORD_OFFSET = 200 * _COORD_SCALE
 
 
-def _strip_tags(text: str) -> str:
-    """Drop the <b> highlight tags and HTML entities local.json puts in titles."""
-    return html.unescape(_TAG.sub("", text))
-
-
 def map_url(name: str) -> str:
     """Build a map.naver.com search link for a place or address."""
     return f"{MAP_SEARCH_LINK_BASE}/{quote(name, safe='')}"
-
-
-def place_result(item: dict[str, Any]) -> dict[str, Any]:
-    """Map a local.json item to the place response schema."""
-    name = _strip_tags(item["title"])
-    result: dict[str, Any] = {
-        "place_name": name,
-        # mapx/mapy are WGS84 degrees scaled by 1e7, as integer strings.
-        "latitude": int(item["mapy"]) / _COORD_SCALE,
-        "longitude": int(item["mapx"]) / _COORD_SCALE,
-        "address": item["address"],
-        "road_address": item["roadAddress"],
-        "map_url": map_url(name),
-    }
-    if item.get("category"):
-        result["category_name"] = item["category"]
-    # `link` is the business's own homepage and is often empty.
-    if item.get("link"):
-        result["place_url"] = item["link"]
-    return result
 
 
 def instant_place_result(item: dict[str, Any]) -> dict[str, Any]:

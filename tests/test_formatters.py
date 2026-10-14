@@ -2,34 +2,9 @@
 
 from __future__ import annotations
 
-from custom_components.naver_map.formatters import address_result, place_result, route_url
+from custom_components.naver_map.formatters import address_result, route_url
 from custom_components.naver_map.helpers import ResolvedPoint
-from tests.const import ADDRESS_ITEM, STARBUCKS_ITEM
-
-
-def test_place_result_strips_tags_and_scales_coordinates() -> None:
-    """Title highlight tags are removed and mapx/mapy (deg * 1e7) become degrees."""
-    assert place_result(STARBUCKS_ITEM) == {
-        "place_name": "스타벅스 판교점",
-        "latitude": 37.3945,
-        "longitude": 127.1112,
-        "address": "경기도 성남시 분당구 삼평동 681",
-        "road_address": "경기도 성남시 분당구 판교역로 4",
-        "category_name": "카페,디저트>카페",
-        "place_url": "https://www.starbucks.co.kr/",
-        "map_url": "https://map.naver.com/p/search/%EC%8A%A4%ED%83%80%EB%B2%85%EC%8A%A4%20%ED%8C%90%EA%B5%90%EC%A0%90",
-    }
-
-
-def test_place_result_unescapes_entities_and_omits_empty_link() -> None:
-    """HTML entities in titles are decoded; an empty `link`/`category` is omitted."""
-    item = {**STARBUCKS_ITEM, "title": "A&amp;B <b>카페</b>", "link": "", "category": ""}
-
-    result = place_result(item)
-
-    assert result["place_name"] == "A&B 카페"
-    assert "place_url" not in result
-    assert "category_name" not in result
+from tests.const import ADDRESS_ITEM
 
 
 def test_address_result_extracts_postal_code() -> None:

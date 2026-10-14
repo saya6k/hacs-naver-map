@@ -4,7 +4,7 @@
 
 > Source of truth — see [한국어](../ko/index.md) for the Korean translation (may lag).
 
-Naver Map for Home Assistant — **place search**, **nearby search**, **geocoding**, and **directions** (Naver Map link plus travel time) built on the Naver Search API, NAVER Cloud Platform Maps, and Naver Map's web/internal APIs. For Korean users.
+Naver Map for Home Assistant — **place search**, **nearby search**, **geocoding**, and **directions** (Naver Map link plus travel time) built on NAVER Cloud Platform Maps and Naver Map's web/internal APIs. For Korean users.
 
 > **Map-tile replacement is not supported.** The route panel draws on Home Assistant's built-in map (OpenStreetMap tiles); the integration does not replace tiles or patch the HA frontend map.
 
@@ -34,14 +34,13 @@ Copy `custom_components/naver_map/` into your HA config's `custom_components/` f
 
 ## Configuration
 
-The config flow asks for the NAVER Cloud Platform keys (required) and, optionally, Naver Developers search keys. Only one entry is supported; change the keys later with **Reconfigure**.
+The config flow asks for one key pair from NAVER Cloud Platform. Only one entry is supported; change the keys later with **Reconfigure**.
 
 | Credential | Where to get it | Used for |
 |---|---|---|
-| **API Key ID / API Key** (required) | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, with **Geocoding**, **Reverse Geocoding**, and **Directions 5** enabled | `geocode_address`, `get_directions` (car), region lookup for the `search_nearby` fallback |
-| **Client ID / Client Secret** (optional) | [Naver Developers](https://developers.naver.com/apps/) → Application → register with the **검색 (Search)** API | Official keyword search for `search_place`, and the `search_nearby` fallback |
+| **API Key ID / API Key** | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, with **Geocoding** and **Directions 5** enabled | `geocode_address`, `get_directions` (car) |
 
-Keyword and nearby search use Naver Map's (unofficial) web autocomplete, which, like the Naver Map app, ranks places near a point. **The search keys add the official search API as a fallback** for when that autocomplete fails; **without them**, if Naver blocks or changes it, both searches stop. Everything else works the same. The setup form says this too.
+Everything else needs no keys: keyword and nearby search, transit, walking, and cycling directions, place details, and live arrivals use Naver Map's web (unofficial) endpoints, so they may stop working if Naver changes or blocks them. The setup form says this too, with a link to the NCP console.
 
 NCP Maps is a paid service with a monthly free quota (e.g. Directions 5: 60,000 and Geocoding: 3,000,000 calls a month at the time of writing); check the current pricing in the NCP console. If car directions or geocoding fail, check the [NCP service status](https://www.ncloud.com/serviceStatus/).
 
@@ -115,7 +114,7 @@ response_variable: nearby
 
 Categories (18 total): `cafe`, `restaurant`, `convenience_store`, `supermarket`, `hospital`, `pharmacy`, `subway_station`, `bank`, `gas_station`, `parking`, `academy`, `school`, `daycare`, `cultural_facility`, `real_estate`, `public_institution`, `tourist_attraction`, `accommodation`. In the UI these show as localized labels (카페, 맛집, …); each is searched as a Korean keyword.
 
-How it works: Naver Map's (undocumented) autocomplete is asked for the keyword around the center's coordinates, which yields **up to 10** places with their `place_id`; results outside `radius` are dropped. If that lookup fails, it falls back to the official local search API: that API takes no coordinates, so the center is reverse-geocoded to its district (e.g. `성남시 분당구 삼평동`) and the keyword is searched within it, returning **up to 5** results.
+How it works: Naver Map's (undocumented) autocomplete is asked for the keyword around the center's coordinates, which yields **up to 10** places with their `place_id`; results outside `radius` are dropped. A failed (e.g. blocked) lookup is an error.
 
 ### `naver_map.geocode_address`
 

@@ -28,7 +28,6 @@ from .api import (
     NaverApiError,
     NaverMapRouteApi,
     NaverPlaceApi,
-    NaverSearchApi,
     NcpMapsApi,
     RouteResult,
     TransitResult,
@@ -51,7 +50,6 @@ from .formatters import (
     bus_arrival_result,
     instant_place_result,
     place_details_result,
-    place_result,
     route_url,
     subway_arrival_results,
 )
@@ -148,7 +146,6 @@ GET_DIRECTIONS_SCHEMA = vol.Schema(
 class NaverClients:
     """The API clients one config entry builds and the services/LLM tools share."""
 
-    search: NaverSearchApi | None  # None without the optional search keys
     maps: NcpMapsApi
     route: NaverMapRouteApi
     place: NaverPlaceApi
@@ -179,9 +176,8 @@ async def async_search_place(
     """Keyword-search places, ranked around ``near`` (an entity or location; default home).
 
     Like the Naver Map app, results favor places near that point: Naver Map's
-    (unofficial) autocomplete takes its coordinates. The official local.json
-    search, which takes none, answers only when the autocomplete fails or
-    finds nothing, and only with the optional search keys.
+    (unofficial) autocomplete takes its coordinates. A failed (e.g. blocked)
+    lookup is ``api_error``.
     """
     if near:
         point = resolve_point(hass, role=NEAR_ROLE, value=near)
@@ -191,24 +187,14 @@ async def async_search_place(
     try:
         places = await clients.place.async_instant_search(query, latitude, longitude)
     except _PLACE_ERRORS as err:
-        if clients.search is None:
-            _LOGGER.warning("Naver place autocomplete failed (no search keys): %r", err)
-            raise _api_error() from err
-        _LOGGER.warning("Naver place autocomplete failed, using local search: %r", err)
-        places = []
-    if places:
-        results = [instant_place_result(place) for place in places[:MAX_SEARCH_RESULTS]]
-    elif clients.search is None:
+        _LOGGER.warning("Naver place autocomplete failed: %r", err)
+        raise _api_error() from err
+    if not places:
         raise _no_results(query)
-    else:
-        try:
-            items = await clients.search.async_search_local(query)
-        except _API_ERRORS as err:
-            raise _api_error() from err
-        if not items:
-            raise _no_results(query)
-        results = [place_result(item) for item in items]
-    return [_with_distance(result, latitude, longitude) for result in results]
+    return [
+        _with_distance(instant_place_result(place), latitude, longitude)
+        for place in places[:MAX_SEARCH_RESULTS]
+    ]
 
 
 async def async_search_nearby(
@@ -216,13 +202,11 @@ async def async_search_nearby(
 ) -> tuple[ResolvedPoint, list[dict[str, Any]]]:
     """Search a category or keyword around a center and return (center, results).
 
-    Naver Map's autocomplete takes the center's coordinates and returns up to
-    10 nearby places with their place ids. If that undocumented endpoint fails,
-    the official local.json search is used instead: it takes no coordinates, so
-    the center is reverse-geocoded to a region name that prefixes the keyword.
-    Either way results outside ``radius`` are dropped and the rest ordered by
-    distance. ``data`` holds ``ATTR_CENTER``, exactly one of
-    ``ATTR_CATEGORY``/``ATTR_QUERY``, and optionally ``ATTR_RADIUS``.
+    Naver Map's (unofficial) autocomplete takes the center's coordinates and
+    returns up to 10 nearby places with their place ids; results outside
+    ``radius`` are dropped and the rest ordered by distance. ``data`` holds
+    ``ATTR_CENTER``, exactly one of ``ATTR_CATEGORY``/``ATTR_QUERY``, and
+    optionally ``ATTR_RADIUS``.
     """
     category = data.get(ATTR_CATEGORY)
     query = data.get(ATTR_QUERY)
@@ -235,22 +219,11 @@ async def async_search_nearby(
         places = await clients.place.async_instant_search(
             keyword, center.latitude, center.longitude
         )
-        candidates = [instant_place_result(place) for place in places]
     except _PLACE_ERRORS as err:
-        if clients.search is None:
-            _LOGGER.warning("Naver nearby autocomplete failed (no search keys): %r", err)
-            raise _api_error() from err
-        _LOGGER.warning("Naver nearby autocomplete failed, using local search: %r", err)
-        try:
-            region = await clients.maps.async_region_name(center.longitude, center.latitude)
-            items = await clients.search.async_search_local(
-                f"{region} {keyword}" if region else keyword
-            )
-        except _API_ERRORS as api_err:
-            raise _api_error() from api_err
-        candidates = [place_result(item) for item in items]
+        _LOGGER.warning("Naver nearby autocomplete failed: %r", err)
+        raise _api_error() from err
     results = []
-    for result in candidates:
+    for result in (instant_place_result(place) for place in places):
         meters = geo_distance(
             center.latitude, center.longitude, result["latitude"], result["longitude"]
         )
