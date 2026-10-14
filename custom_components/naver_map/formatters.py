@@ -9,6 +9,7 @@ from __future__ import annotations
 import html
 import re
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import quote
 
@@ -103,6 +104,63 @@ def place_details_result(detail: dict[str, Any]) -> dict[str, Any]:
         "naver_pay": bool(labels.get("nPay")),
         "place_url": f"{PLACE_LINK_BASE}/{detail['id']}",
     }
+
+
+def bus_arrival_result(item: dict[str, Any]) -> dict[str, Any]:
+    """Map one line of a realtime bus arrivals answer to the arrivals schema."""
+    arrival = item["arrival"]
+    reference = datetime.fromisoformat(arrival["referenceTime"])
+    return {
+        "route_id": str(item["id"]),
+        "line": item["name"],
+        "color": (item.get("type") or {}).get("color"),
+        "direction": item.get("direction"),
+        "running": arrival["status"] == "RUNNING",
+        "vehicles": [
+            {
+                "arrival_time": (reference + timedelta(seconds=bus["remainingTime"])).isoformat(),
+                "remaining_time": int(bus["remainingTime"]),
+                "remaining_stops": bus.get("remainingStop"),
+                "congestion": (bus.get("congestion") or {}).get("desc"),
+                "low_floor": bus.get("lowFloor"),
+                "last": bool(bus.get("last")),
+            }
+            for bus in arrival["buses"]
+        ],
+    }
+
+
+def _seconds_until(iso: str, now: datetime) -> int:
+    return max(0, int((datetime.fromisoformat(iso) - now).total_seconds()))
+
+
+def subway_arrival_results(item: dict[str, Any], now: datetime) -> list[dict[str, Any]]:
+    """Map one line of a realtime subway arrivals answer to one entry per direction."""
+    line = item["routeType"]
+    results = []
+    for way in ("up", "down"):
+        trains = item[f"{way}Ways"]
+        results.append(
+            {
+                "route_id": str(trains[0]["laneId"]) if trains else None,
+                "line": line["name"],
+                "color": line.get("color"),
+                "direction": item.get(f"{way}Way"),
+                "way": way,
+                "running": bool(trains),
+                "vehicles": [
+                    {
+                        "arrival_time": train["arrivalTimeZ"],
+                        "remaining_time": _seconds_until(train["arrivalTimeZ"], now),
+                        "headsign": train.get("headsign"),
+                        "express": (train.get("operation") or {}).get("type", "NORMAL") != "NORMAL",
+                        "last": bool(train.get("lastTrip")),
+                    }
+                    for train in trains
+                ],
+            }
+        )
+    return results
 
 
 def address_result(item: dict[str, Any]) -> dict[str, Any]:

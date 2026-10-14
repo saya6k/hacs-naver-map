@@ -20,23 +20,27 @@ from custom_components.naver_map.api import (
 )
 from custom_components.naver_map.const import (
     BIKE_ROUTE_URL,
+    BUS_ARRIVALS_URL,
     DRIVING_URL,
     GEOCODE_URL,
     INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
     PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
+    SUBWAY_ARRIVALS_URL,
     TRANSIT_ROUTE_URL,
     WALK_ROUTE_URL,
 )
 from custom_components.naver_map.helpers import ResolvedPoint
 from tests.const import (
     ADDRESS_ITEM,
+    BUS_ARRIVALS_RESPONSE,
     CAPTCHA_RESPONSE,
     INSTANT_SEARCH_RESPONSE,
     PLACE_SUMMARY_RESPONSE,
     REGION_RESPONSE,
     STARBUCKS_ITEM,
+    SUBWAY_ARRIVALS_RESPONSE,
 )
 from tests.vendor.aiohttp_mock import AiohttpClientMocker, AiohttpClientMockResponse
 
@@ -450,16 +454,17 @@ async def test_transit_route_parses_ride_and_walk_steps(
                                     "distance": 2785,
                                     "duration": 10,
                                     "headsign": "옥수동회차지",
+                                    "wayType": "UP",
                                     "departureTime": "2026-10-14T16:14:38",
                                     "arrivalTime": "2026-10-14T16:25:16",
                                     "routes": [
-                                        {"name": "421", "type": {"color": "#386de8"}},
-                                        {"name": "400", "type": {"color": "#386de8"}},
+                                        {"id": 1808, "name": "421", "type": {"color": "#386de8"}},
+                                        {"id": 500, "name": "400", "type": {"color": "#386de8"}},
                                     ],
                                     "stations": [
-                                        {"name": "강남역"},
-                                        {"name": "논현역"},
-                                        {"name": "신사역"},
+                                        {"id": 106041, "name": "강남역"},
+                                        {"id": 1, "name": "논현역"},
+                                        {"id": 2, "name": "신사역"},
                                     ],
                                 },
                             ]
@@ -494,6 +499,9 @@ async def test_transit_route_parses_ride_and_walk_steps(
             "from": "강남역",
             "to": "신사역",
             "stops": 2,
+            "stop_id": "106041",
+            "route_ids": ["1808", "500"],
+            "way": "up",
         },
     ]
 
@@ -723,3 +731,27 @@ async def test_place_summary_is_cached(
     await api.async_get_place_summary("1086067689")
 
     assert aioclient_mock.call_count == 1
+
+
+async def test_bus_arrivals_query_the_stop(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Realtime bus arrivals are requested per stop id."""
+    aioclient_mock.get(BUS_ARRIVALS_URL, json=BUS_ARRIVALS_RESPONSE)
+
+    arrivals = await _route_api(hass).async_get_bus_arrivals("106041")
+
+    assert [item["name"] for item in arrivals] == ["917", "3100N"]
+    assert aioclient_mock.mock_calls[0][1].query == {"stopId": "106041"}
+
+
+async def test_subway_arrivals_query_the_station(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Realtime subway arrivals are requested per (per-line) station id."""
+    aioclient_mock.get(SUBWAY_ARRIVALS_URL, json=SUBWAY_ARRIVALS_RESPONSE)
+
+    arrivals = await _route_api(hass).async_get_subway_arrivals("222")
+
+    assert arrivals[0]["routeType"]["name"] == "2호선"
+    assert aioclient_mock.mock_calls[0][1].query == {"station": "222", "subwayArrivalCount": "3"}

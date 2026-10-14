@@ -11,6 +11,7 @@ from homeassistant.util import dt as dt_util
 
 from custom_components.naver_map.const import (
     BIKE_ROUTE_URL,
+    BUS_ARRIVALS_URL,
     DOMAIN,
     DRIVING_URL,
     GEOCODE_URL,
@@ -18,17 +19,20 @@ from custom_components.naver_map.const import (
     LOCAL_SEARCH_URL,
     PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
+    SUBWAY_ARRIVALS_URL,
     TRANSIT_ROUTE_URL,
     WALK_ROUTE_URL,
 )
 from tests.const import (
     ADDRESS_ITEM,
+    BUS_ARRIVALS_RESPONSE,
     CAPTCHA_RESPONSE,
     ENTRY_DATA,
     INSTANT_SEARCH_RESPONSE,
     PLACE_SUMMARY_RESPONSE,
     REGION_RESPONSE,
     STARBUCKS_ITEM,
+    SUBWAY_ARRIVALS_RESPONSE,
 )
 from tests.vendor.aiohttp_mock import AiohttpClientMocker
 from tests.vendor.ha_common import MockConfigEntry
@@ -661,5 +665,96 @@ async def test_get_place_details_blocked_lookup_is_api_error(
 
     with pytest.raises(HomeAssistantError) as err:
         await _call(hass, "get_place_details", {"query": "스타벅스"})
+
+    assert err.value.translation_key == "api_error"
+
+
+async def test_get_transit_arrivals_bus_filters_routes(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Bus arrivals list each requested line with its next buses."""
+    aioclient_mock.get(BUS_ARRIVALS_URL, json=BUS_ARRIVALS_RESPONSE)
+
+    response = await _call(
+        hass,
+        "get_transit_arrivals",
+        {"type": "bus", "stop_id": "106041", "route_ids": ["6025"]},
+    )
+
+    assert response == {
+        "arrivals": [
+            {
+                "route_id": "6025",
+                "line": "917",
+                "color": "#87C700",
+                "direction": "논현역",
+                "running": True,
+                "vehicles": [
+                    {
+                        "arrival_time": "2026-10-14T17:29:44+09:00",
+                        "remaining_time": 120,
+                        "remaining_stops": 2,
+                        "congestion": "여유",
+                        "low_floor": True,
+                        "last": False,
+                    },
+                    {
+                        "arrival_time": "2026-10-14T17:42:44+09:00",
+                        "remaining_time": 900,
+                        "remaining_stops": 9,
+                        "congestion": None,
+                        "low_floor": False,
+                        "last": True,
+                    },
+                ],
+            }
+        ]
+    }
+
+
+async def test_get_transit_arrivals_bus_ended_line(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A line that stopped running for the day is listed with no vehicles."""
+    aioclient_mock.get(BUS_ARRIVALS_URL, json=BUS_ARRIVALS_RESPONSE)
+
+    response = await _call(hass, "get_transit_arrivals", {"type": "bus", "stop_id": "106041"})
+
+    ended = response["arrivals"][1]
+    assert (ended["line"], ended["running"], ended["vehicles"]) == ("3100N", False, [])
+
+
+async def test_get_transit_arrivals_subway_direction(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Subway arrivals are split by direction; `direction` keeps one side."""
+    aioclient_mock.get(SUBWAY_ARRIVALS_URL, json=SUBWAY_ARRIVALS_RESPONSE)
+
+    response = await _call(
+        hass, "get_transit_arrivals", {"type": "subway", "stop_id": "222", "direction": "down"}
+    )
+
+    [down] = response["arrivals"]
+    assert {key: down[key] for key in ("route_id", "line", "color", "direction", "way")} == {
+        "route_id": "2",
+        "line": "2호선",
+        "color": "#3cb44a",
+        "direction": "내선순환",
+        "way": "down",
+    }
+    [train] = down["vehicles"]
+    assert train["arrival_time"] == "2099-01-01T08:05:00+09:00"
+    assert train["remaining_time"] > 0
+    assert (train["headsign"], train["express"], train["last"]) == ("성수", True, True)
+
+
+async def test_get_transit_arrivals_unreadable_is_api_error(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A failed or unexpected arrivals answer raises api_error."""
+    aioclient_mock.get(SUBWAY_ARRIVALS_URL, json={"error": "blocked"})
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _call(hass, "get_transit_arrivals", {"type": "subway", "stop_id": "222"})
 
     assert err.value.translation_key == "api_error"

@@ -112,3 +112,70 @@ PLACE_SUMMARY_RESPONSE = {
 
 # What instant-search returns when Naver gates it behind a CAPTCHA.
 CAPTCHA_RESPONSE = {"result": {"place": None, "ncaptcha": {"confirmRules": "CE_EMPTY_TOKEN"}}}
+
+# map.naver.com realtime bus arrivals at one stop, trimmed.
+BUS_ARRIVALS_RESPONSE = [
+    {
+        "stopId": 106041,
+        "id": 6025,
+        "name": "917",
+        "type": {"name": "일반", "color": "#87C700"},
+        "direction": "논현역",
+        "arrival": {
+            "status": "RUNNING",
+            "referenceTime": "2026-10-14T17:27:44+09:00",
+            "buses": [
+                {
+                    "lowFloor": True,
+                    "remainingTime": 120,
+                    "remainingStop": 2,
+                    "congestion": {"code": "RELAXED", "desc": "여유"},
+                    "last": False,
+                },
+                {
+                    "lowFloor": False,
+                    "remainingTime": 900,
+                    "remainingStop": 9,
+                    "congestion": None,
+                    "last": True,
+                },
+            ],
+        },
+    },
+    {
+        "stopId": 106041,
+        "id": 20037433,
+        "name": "3100N",
+        "type": {"name": "간선", "color": "#386de8"},
+        "direction": "논현역",
+        "arrival": {"status": "END", "buses": [], "referenceTime": "2026-10-14T17:27:44+09:00"},
+    },
+]
+
+# pts.map.naver.com realtime subway arrivals at one station (one line), trimmed.
+SUBWAY_ARRIVALS_RESPONSE = [
+    {
+        "stationId": 222,
+        "routeType": {"id": 202, "name": "2호선", "color": "#3cb44a"},
+        "upWay": "외선순환",
+        "downWay": "내선순환",
+        "upWays": [
+            {
+                "laneId": 2,
+                "headsign": "외선순환",
+                "arrivalTimeZ": "2099-01-01T08:00:00+09:00",
+                "operation": {"type": "NORMAL", "name": "일반"},
+                "lastTrip": False,
+            }
+        ],
+        "downWays": [
+            {
+                "laneId": 2,
+                "headsign": "성수",
+                "arrivalTimeZ": "2099-01-01T08:05:00+09:00",
+                "operation": {"type": "EXPRESS", "name": "급행"},
+                "lastTrip": True,
+            }
+        ],
+    }
+]

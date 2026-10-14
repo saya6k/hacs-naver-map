@@ -15,6 +15,7 @@
 - **`search_nearby`** — 중심 지점(엔티티 또는 좌표) 주변을 카테고리 또는 키워드로 검색. 거리순 정렬, 각 결과에 `distance`(가능하면 네이버 플레이스 `place_id`도) 포함.
 - **`geocode_address`** — 주소를 WGS84 좌표로 변환. 가장 일치하는 결과의 지번·도로명 주소, 우편번호, 지도 링크를 반환합니다.
 - **`get_place_details`** — 네이버 플레이스 요약: 영업 상태, 리뷰 수, 사진, 예약·주문 여부, 장소 링크.
+- **`get_transit_arrivals`** — 버스 정류장·지하철역 실시간 도착(노선별 다음 차량, 남은 시간·정류장).
 - **`get_directions`** — 네이버 지도 경로 링크 + 구간별 지점 + 자동차·대중교통·도보·자전거 소요시간/도착 예정 시각. 지점은 엔티티(person / device_tracker / zone / …) 또는 좌표.
 - **경로 패널** — 사이드바 **Naver Map** 패널에서 장소를 검색하고, Home Assistant 기본 지도 위에 경로선을 그리며 소요시간·거리·(대중교통) 환승·요금을 보여줍니다.
 - **Assist / AI 도구 지원** — 같은 기능을 AI 대화 에이전트용 LLM 도구 API로도 노출하며, 결과 카드를 시각적으로 표시합니다.
@@ -141,6 +142,23 @@ response_variable: place
 #        booking / order / delivery / naver_pay / place_url
 ```
 
+### `naver_map.get_transit_arrivals`
+
+버스 정류장이나 지하철역(역 ID는 노선별)의 실시간 도착 정보입니다. ID는 `get_directions` 대중교통 단계의 `stop_id`·`route_ids`·`way`에서 가져옵니다. 네이버 지도의 비공개 웹 API를 사용하는 best-effort 기능입니다.
+
+```yaml
+action: naver_map.get_transit_arrivals
+data:
+  type: bus                         # bus | subway
+  stop_id: "106041"
+  route_ids: ["6025"]               # 선택: 이 노선만
+  # direction: up                   # 지하철 전용: up | down
+response_variable: realtime
+# realtime.arrivals[]: route_id / line / color / direction / running / (지하철) way /
+#   vehicles[]: arrival_time / remaining_time(초) / (버스) remaining_stops / congestion /
+#               low_floor / (지하철) headsign / express / last
+```
+
 ### `naver_map.get_directions`
 
 ```yaml
@@ -160,7 +178,8 @@ response_variable: route
 # route: route_url / mode / duration(초) / distance(m) / arrival_time / legs[]
 #        (include_geometry 시 + geometry: [[위도, 경도], …] 또는 null)
 #        (include_steps 시 + steps: [{instruction, distance, duration, …}] 또는 null;
-#         대중교통은 type, lines, color, headsign, from, to, stops, 시각 추가)
+#         대중교통은 type, lines, color, headsign, from, to, stops, 시각과
+#         get_transit_arrivals용 stop_id / route_ids / way 추가)
 #        (include_alternatives 시 대중교통 + alternatives: [{duration, distance, transfers, fare,
 #         walking_duration, departure_time, arrival_time, vehicle_types, labels, …}])
 ```

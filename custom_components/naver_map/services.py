@@ -47,10 +47,12 @@ from .const import (
 )
 from .formatters import (
     address_result,
+    bus_arrival_result,
     instant_place_result,
     place_details_result,
     place_result,
     route_url,
+    subway_arrival_results,
 )
 from .helpers import ResolvedPoint, resolve_point, resolve_waypoint
 
@@ -59,6 +61,7 @@ SERVICE_SEARCH_NEARBY = "search_nearby"
 SERVICE_GEOCODE_ADDRESS = "geocode_address"
 SERVICE_GET_DIRECTIONS = "get_directions"
 SERVICE_GET_PLACE_DETAILS = "get_place_details"
+SERVICE_GET_TRANSIT_ARRIVALS = "get_transit_arrivals"
 
 ATTR_QUERY = "query"
 ATTR_CENTER = "center"
@@ -70,6 +73,12 @@ ATTR_WAYPOINTS = "waypoints"
 ATTR_MODE = "mode"
 ATTR_PLACE_ID = "place_id"
 ATTR_NEAR = "near"
+ATTR_TYPE = "type"
+ATTR_STOP_ID = "stop_id"
+ATTR_ROUTE_IDS = "route_ids"
+ATTR_DIRECTION = "direction"
+TRANSIT_BUS = "bus"
+TRANSIT_SUBWAY = "subway"
 ATTR_INCLUDE_GEOMETRY = "include_geometry"
 ATTR_INCLUDE_STEPS = "include_steps"
 ATTR_INCLUDE_ALTERNATIVES = "include_alternatives"
@@ -106,6 +115,15 @@ GET_PLACE_DETAILS_SCHEMA = vol.Schema(
         vol.Optional(ATTR_PLACE_ID): cv.string,
         vol.Optional(ATTR_QUERY): cv.string,
         vol.Optional(ATTR_NEAR): POINT_INPUT,
+    }
+)
+
+GET_TRANSIT_ARRIVALS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_TYPE): vol.In([TRANSIT_BUS, TRANSIT_SUBWAY]),
+        vol.Required(ATTR_STOP_ID): vol.Coerce(str),
+        vol.Optional(ATTR_ROUTE_IDS): vol.All(cv.ensure_list, [vol.Coerce(str)]),
+        vol.Optional(ATTR_DIRECTION): vol.In(["up", "down"]),
     }
 )
 
@@ -254,6 +272,34 @@ async def async_get_place_details(
         raise _api_error() from err
 
 
+async def async_get_transit_arrivals(
+    clients: NaverClients, data: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Return realtime arrivals at a bus stop or a subway station (one line).
+
+    The ids come from get_directions transit steps (``stop_id``/``route_ids``/
+    ``way``). ``ATTR_ROUTE_IDS`` keeps only those lines and, for the subway,
+    ``ATTR_DIRECTION`` only that direction.
+    """
+    stop_id = data[ATTR_STOP_ID]
+    try:
+        if data[ATTR_TYPE] == TRANSIT_BUS:
+            items = await clients.route.async_get_bus_arrivals(stop_id)
+            arrivals = [bus_arrival_result(item) for item in items]
+        else:
+            items = await clients.route.async_get_subway_arrivals(stop_id)
+            now = dt_util.now()
+            arrivals = [entry for item in items for entry in subway_arrival_results(item, now)]
+    except _PLACE_ERRORS as err:
+        _LOGGER.warning("Naver realtime arrivals lookup failed: %r", err)
+        raise _api_error() from err
+    if route_ids := data.get(ATTR_ROUTE_IDS):
+        arrivals = [entry for entry in arrivals if entry["route_id"] in route_ids]
+    if direction := data.get(ATTR_DIRECTION):
+        arrivals = [entry for entry in arrivals if entry.get("way", direction) == direction]
+    return {"arrivals": arrivals}
+
+
 async def async_get_directions(
     hass: HomeAssistant, clients: NaverClients, data: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -389,6 +435,12 @@ async def _async_handle_get_place_details(
     return await async_get_place_details(hass, clients, call.data)
 
 
+async def _async_handle_get_transit_arrivals(
+    clients: NaverClients, call: ServiceCall
+) -> ServiceResponse:
+    return await async_get_transit_arrivals(clients, call.data)
+
+
 async def _async_handle_get_directions(
     hass: HomeAssistant, clients: NaverClients, call: ServiceCall
 ) -> ServiceResponse:
@@ -420,6 +472,11 @@ def async_setup_services(hass: HomeAssistant, clients: NaverClients) -> None:
             partial(_async_handle_get_place_details, hass, clients),
             GET_PLACE_DETAILS_SCHEMA,
         ),
+        (
+            SERVICE_GET_TRANSIT_ARRIVALS,
+            partial(_async_handle_get_transit_arrivals, clients),
+            GET_TRANSIT_ARRIVALS_SCHEMA,
+        ),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema, supports_response=SupportsResponse.ONLY
@@ -434,3 +491,4 @@ def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_GEOCODE_ADDRESS)
     hass.services.async_remove(DOMAIN, SERVICE_GET_DIRECTIONS)
     hass.services.async_remove(DOMAIN, SERVICE_GET_PLACE_DETAILS)
+    hass.services.async_remove(DOMAIN, SERVICE_GET_TRANSIT_ARRIVALS)

@@ -75,6 +75,34 @@ get_place_details:
       selector:
         text:
 
+get_transit_arrivals:
+  fields:
+    type:
+      required: true
+      selector:
+        select:
+          translation_key: transit_type
+          options:
+            - bus
+            - subway
+    stop_id:
+      required: true
+      example: "106041"
+      selector:
+        text:
+    route_ids:
+      example: "[\"6025\"]"
+      selector:
+        text:
+          multiple: true
+    direction:
+      selector:
+        select:
+          translation_key: transit_direction
+          options:
+            - up
+            - down
+
 get_directions:
   fields:
     origin:

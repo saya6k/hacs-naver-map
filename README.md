@@ -20,6 +20,7 @@ Naver Map for Home Assistant — **place search**, **nearby search**, **geocodin
 - **`search_nearby`** — search around a center point (entity or coordinates) by category or keyword, ordered by distance, with a `distance` field (and the Naver Place `place_id` when available) on each result.
 - **`geocode_address`** — convert an address into WGS84 coordinates, returning the best match with its jibun/road address, postal code, and a map link.
 - **`get_place_details`** — a place's Naver Place summary: business-hours status, review counts, photos, booking/order availability, and a link to the place.
+- **`get_transit_arrivals`** — realtime arrivals at a bus stop or subway station (next vehicles per line, remaining time and stops).
 - **`get_directions`** — Naver Map route link + per-leg points + travel time / arrival time for car, transit, walk, and bicycle. Points are entities (person / device_tracker / zone / …) or coordinates.
 - **Route panel** — a **Naver Map** sidebar panel that searches places, draws the route line on Home Assistant's built-in map, and shows travel time, distance, and (transit) transfers/fare.
 - **Assist / AI tool support** — the same actions are exposed as an LLM tool API for AI-backed conversation agents, with visual result cards.
@@ -148,6 +149,23 @@ response_variable: place
 #        booking / order / delivery / naver_pay / place_url
 ```
 
+### `naver_map.get_transit_arrivals`
+
+Realtime arrivals at a bus stop or a subway station (station IDs are per line). Take the IDs from a `get_directions` transit step (`stop_id`, `route_ids`, `way`). Best effort: it uses Naver Map's undocumented web API.
+
+```yaml
+action: naver_map.get_transit_arrivals
+data:
+  type: bus                         # bus | subway
+  stop_id: "106041"
+  route_ids: ["6025"]               # optional: only these lines
+  # direction: up                   # subway only: up | down
+response_variable: realtime
+# realtime.arrivals[]: route_id / line / color / direction / running / (subway) way /
+#   vehicles[]: arrival_time / remaining_time(s) / (bus) remaining_stops / congestion /
+#               low_floor / (subway) headsign / express / last
+```
+
 ### `naver_map.get_directions`
 
 ```yaml
@@ -167,7 +185,8 @@ response_variable: route
 # route: route_url / mode / duration(s) / distance(m) / arrival_time / legs[]
 #        (+ geometry: [[latitude, longitude], …] or null with include_geometry)
 #        (+ steps: [{instruction, distance, duration, …}] or null with include_steps;
-#         transit steps add type, lines, color, headsign, from, to, stops, times)
+#         transit steps add type, lines, color, headsign, from, to, stops, times,
+#         and stop_id / route_ids / way for get_transit_arrivals)
 #        (+ alternatives (transit): [{duration, distance, transfers, fare, walking_duration,
 #         departure_time, arrival_time, vehicle_types, labels, …}] with include_alternatives)
 ```

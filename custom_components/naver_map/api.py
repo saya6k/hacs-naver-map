@@ -17,6 +17,7 @@ import aiohttp
 
 from .const import (
     BIKE_ROUTE_URL,
+    BUS_ARRIVALS_URL,
     DRIVING_URL,
     GEOCODE_URL,
     INSTANT_SEARCH_URL,
@@ -25,6 +26,8 @@ from .const import (
     PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
     ROUTE_API_HEADERS,
+    SUBWAY_ARRIVAL_COUNT,
+    SUBWAY_ARRIVALS_URL,
     TRANSIT_ROUTE_URL,
     WALK_ROUTE_URL,
 )
@@ -239,6 +242,10 @@ def _transit_steps(data: Any) -> list[dict[str, Any]]:
                 step["from"] = stations[0]["name"]
                 step["to"] = stations[-1]["name"]
                 step["stops"] = len(stations) - 1
+                # For realtime arrivals at the boarding stop (get_transit_arrivals).
+                step["stop_id"] = str(stations[0]["id"])
+                step["route_ids"] = [str(route["id"]) for route in routes]
+                step["way"] = raw["wayType"].lower() if raw.get("wayType") else None
             steps.append(step)
     return steps
 
@@ -409,6 +416,23 @@ class NaverMapRouteApi:
 
     async def _async_get(self, url: str, params: dict[str, str]) -> Any:
         return await _async_get_web_json(self._session, url, params)
+
+    async def _async_get_list(self, url: str, params: dict[str, str]) -> list[dict[str, Any]]:
+        data = await self._async_get(url, params)
+        if not isinstance(data, list):
+            raise ValueError(f"unexpected arrivals answer: {str(data)[:100]}")
+        return data
+
+    async def async_get_bus_arrivals(self, stop_id: str) -> list[dict[str, Any]]:
+        """Return the realtime arrivals of every bus line at one stop."""
+        return await self._async_get_list(BUS_ARRIVALS_URL, {"stopId": stop_id})
+
+    async def async_get_subway_arrivals(self, station_id: str) -> list[dict[str, Any]]:
+        """Return the realtime arrivals, both directions, at one line's station."""
+        return await self._async_get_list(
+            SUBWAY_ARRIVALS_URL,
+            {"station": station_id, "subwayArrivalCount": str(SUBWAY_ARRIVAL_COUNT)},
+        )
 
     async def async_get_transit_routes(
         self, origin: ResolvedPoint, destination: ResolvedPoint
