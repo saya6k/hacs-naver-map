@@ -8,11 +8,20 @@
 const MODES = ["car", "transit", "walk", "bicycle"];
 const ENTITY_DOMAINS = ["person", "zone", "device_tracker"];
 const REQUERY_DELAY = 800; // ms; marker drags re-query Directions 5, a paid API
-const COLORS = { origin: "#03c75a", destination: "#e5484d", route: "#03c75a" };
+const COLORS = {
+  origin: "#03c75a",
+  destination: "#e5484d",
+  route: "#03c75a",
+  place: "#1e6fff",
+  activePlace: "#ff7a00",
+};
 
 const STRINGS = {
   en: {
     title: "Naver Map",
+    tabs: { place: "Places", route: "Directions" },
+    setOrigin: "Set as origin",
+    setDestination: "Set as destination",
     origin: "Origin",
     destination: "Destination",
     search: "Search",
@@ -39,6 +48,9 @@ const STRINGS = {
   },
   ko: {
     title: "네이버 지도",
+    tabs: { place: "장소 검색", route: "길찾기" },
+    setOrigin: "출발지로",
+    setDestination: "도착지로",
     origin: "출발",
     destination: "도착",
     search: "검색",
@@ -100,6 +112,10 @@ async function ensureHaMap() {
 class NaverMapPanel extends HTMLElement {
   constructor() {
     super();
+    this._tab = "place";
+    this._placeQuery = "";
+    this._places = [];
+    this._activePlace = null;
     this._points = { origin: null, destination: null };
     this._queries = { origin: "", destination: "" };
     this._results = { origin: [], destination: [] };
@@ -153,10 +169,15 @@ class NaverMapPanel extends HTMLElement {
     this._sheet.addEventListener("click", (ev) => this._onClick(ev));
     this._sheet.addEventListener("change", (ev) => this._onChange(ev));
     this._sheet.addEventListener("input", (ev) => {
-      if (ev.target.dataset.query) this._queries[ev.target.dataset.query] = ev.target.value;
+      const { query } = ev.target.dataset;
+      if (query === "place") this._placeQuery = ev.target.value;
+      else if (query) this._queries[query] = ev.target.value;
     });
     this._sheet.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter" && ev.target.dataset.query) this._search(ev.target.dataset.query);
+      const { query } = ev.target.dataset;
+      if (ev.key !== "Enter" || !query) return;
+      if (query === "place") this._searchPlaces();
+      else this._search(query);
     });
     customElements.whenDefined("ha-menu-button").then(() => {
       this._menuButton = document.createElement("ha-menu-button");
@@ -183,6 +204,9 @@ class NaverMapPanel extends HTMLElement {
     map.addEventListener("editable-location-moved", (ev) =>
       this._onMarkerMoved(ev.detail.id, ev.detail.location)
     );
+    map.addEventListener("editable-location-clicked", (ev) => {
+      if (this._tab === "place") this._selectPlace(Number(ev.detail.id.replace("place-", "")));
+    });
     container.appendChild(map);
     this._map = map;
     this._syncMapEntities();
@@ -225,7 +249,19 @@ class NaverMapPanel extends HTMLElement {
     const el = ev.target.closest("[data-action]");
     if (!el) return;
     const { action, slot } = el.dataset;
-    if (action === "search") this._search(slot);
+    if (action === "tab") {
+      this._tab = el.dataset.tab;
+      this._picking = null;
+      this._render();
+      this._drawMap();
+    } else if (action === "place-search") this._searchPlaces();
+    else if (action === "place-select") this._selectPlace(Number(el.dataset.index));
+    else if (action === "place-use") {
+      const place = this._places[Number(el.dataset.index)];
+      this._tab = "route";
+      this._queries[slot] = place.place_name;
+      this._setPoint(slot, { label: place.place_name, location: [place.latitude, place.longitude] });
+    } else if (action === "search") this._search(slot);
     else if (action === "pick") {
       this._picking = this._picking === slot ? null : slot;
       this._render();
@@ -256,7 +292,7 @@ class NaverMapPanel extends HTMLElement {
   }
 
   _onMapClicked(location) {
-    if (!this._picking) return;
+    if (this._tab !== "route" || !this._picking) return;
     this._setPoint(this._picking, { label: this._t.selected, location });
   }
 
@@ -295,6 +331,30 @@ class NaverMapPanel extends HTMLElement {
     this._render();
   }
 
+  async _searchPlaces() {
+    const query = this._placeQuery.trim();
+    if (!query) return;
+    this._error = null;
+    this._activePlace = null;
+    try {
+      this._places = (await this._callService("search_place", { query })).results;
+    } catch (err) {
+      this._places = [];
+      this._error = err.message || String(err);
+    }
+    this._render();
+    this._drawMap();
+  }
+
+  _selectPlace(index) {
+    this._activePlace = index;
+    this._render();
+    this._drawMap();
+    const place = this._places[index];
+    this._map?.fitBounds([[place.latitude, place.longitude]], { zoom: 16 });
+    this._sheet.querySelector(`[data-place="${index}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+
   async _query() {
     const { origin, destination } = this._points;
     if (!origin || !destination) return;
@@ -325,6 +385,10 @@ class NaverMapPanel extends HTMLElement {
 
   _drawMap() {
     if (!this._map) return;
+    if (this._tab === "place") {
+      this._drawPlaces();
+      return;
+    }
     const t = this._t;
     this._map.editableLocations = ["origin", "destination"]
       .filter((slot) => this._points[slot])
@@ -362,16 +426,35 @@ class NaverMapPanel extends HTMLElement {
     }
   }
 
-  // A colored dot, cached so ha-map sees the same element and keeps the marker.
-  _markerElement(slot) {
+  _drawPlaces() {
+    this._map.paths = [];
+    this._map.editableLocations = this._places.map((place, index) => ({
+      id: `place-${index}`,
+      location: [place.latitude, place.longitude],
+      title: place.place_name,
+      element: this._markerElement(index === this._activePlace ? "activePlace" : "place", index),
+      elementSize: 20,
+      activatable: true,
+    }));
+    if (this._places.length && this._activePlace == null) {
+      this._map.fitBounds(
+        this._places.map((place) => [place.latitude, place.longitude]),
+        { pad: 0.3, zoom: 16 }
+      );
+    }
+  }
+
+  // A colored dot, cached per marker so ha-map sees the same element and keeps it.
+  _markerElement(color, key = color) {
     this._markers ||= {};
-    if (!this._markers[slot]) {
+    const id = `${color}:${key}`;
+    if (!this._markers[id]) {
       const dot = document.createElement("div");
       dot.style.cssText = `width:20px;height:20px;box-sizing:border-box;border-radius:50%;
-        border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);background:${COLORS[slot]};cursor:grab`;
-      this._markers[slot] = dot;
+        border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);background:${COLORS[color]};cursor:pointer`;
+      this._markers[id] = dot;
     }
-    return this._markers[slot];
+    return this._markers[id];
   }
 
   // Route geometry when available, else straight segments through the legs.
@@ -463,16 +546,55 @@ class NaverMapPanel extends HTMLElement {
     return `<section class="result-box">${rows.join("")}</section>`;
   }
 
+  _renderPlaceTab() {
+    const t = this._t;
+    const places = this._places
+      .map(
+        (place, index) => `
+        <li class="place ${index === this._activePlace ? "active" : ""}" data-place="${index}">
+          <button class="result" data-action="place-select" data-index="${index}">
+            <b>${escapeHtml(place.place_name)}</b>
+            ${place.category_name ? `<small>${escapeHtml(place.category_name)}</small>` : ""}
+            <small>${escapeHtml(place.road_address || place.address)}</small>
+          </button>
+          <div class="row">
+            <button data-action="place-use" data-slot="origin" data-index="${index}">${t.setOrigin}</button>
+            <button data-action="place-use" data-slot="destination" data-index="${index}">${t.setDestination}</button>
+            <a class="open" href="${escapeHtml(place.map_url)}" target="_blank" rel="noopener noreferrer">${t.openInNaver}</a>
+          </div>
+        </li>`
+      )
+      .join("");
+    return `
+      <div class="row">
+        <input data-query="place" placeholder="${escapeHtml(t.searchPlaceholder)}" value="${escapeHtml(this._placeQuery)}">
+        <button data-action="place-search">${t.search}</button>
+      </div>
+      ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
+      ${places ? `<ul class="results">${places}</ul>` : ""}`;
+  }
+
   _render() {
     if (!this._sheet || !this._hass) return;
     const t = this._t;
     this._root.querySelector(".title").textContent = t.title;
+    const tabs = ["place", "route"]
+      .map(
+        (tab) =>
+          `<button data-action="tab" data-tab="${tab}" class="tab ${tab === this._tab ? "active" : ""}">${t.tabs[tab]}</button>`
+      )
+      .join("");
+    if (this._tab === "place") {
+      this._sheet.innerHTML = `<div class="tabs">${tabs}</div>${this._renderPlaceTab()}`;
+      return;
+    }
     const entities = this._locatedEntities();
     const modes = MODES.map(
       (mode) =>
         `<button data-action="mode" data-mode="${mode}" class="${mode === this._mode ? "active" : ""}">${t.modes[mode]}</button>`
     ).join("");
     this._sheet.innerHTML = `
+      <div class="tabs">${tabs}</div>
       ${this._renderSlot("origin", entities)}
       ${this._renderSlot("destination", entities)}
       ${this._picking ? `<p class="hint">${t.pickingHint}</p>` : ""}
@@ -505,6 +627,10 @@ const STYLE = `
   button { padding: 8px 10px; border-radius: 6px; border: 1px solid var(--divider-color); cursor: pointer;
     background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }
   button.active { background: var(--primary-color); color: var(--text-primary-color, #fff); border-color: var(--primary-color); }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .place { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 8px; }
+  .place.active { background: var(--secondary-background-color); }
+  .place .open { align-self: center; }
   .modes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .results { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
   .result { width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px; }
