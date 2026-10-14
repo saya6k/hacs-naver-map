@@ -3,7 +3,7 @@
   "config": {
     "step": {
       "user": {
-        "description": "The NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Keyword results are also ranked around your home location rather than nationwide. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
+        "description": "The NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
         "data": {
           "ncp_key_id": "NCP Maps API Key ID",
           "ncp_key": "NCP Maps API Key",
@@ -19,7 +19,7 @@
       },
       "reconfigure": {
         "title": "Change credentials",
-        "description": "Change the credentials, or add or drop the optional search keys.\n\nThe NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Keyword results are also ranked around your home location rather than nationwide. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
+        "description": "Change the credentials, or add or drop the optional search keys.\n\nThe NAVER Cloud Platform Maps application keys (with Geocoding, Reverse Geocoding, and Directions 5 enabled) are required. The Naver Developers search API keys (Client ID/Secret) are optional.\n\n**What leaving the search keys empty gives up:** keyword and nearby place search rely only on Naver Map's unofficial web autocomplete. If Naver blocks or changes it, both searches stop, with no official search API to fall back on. Directions, geocoding, place details, and live arrivals are not affected, and you can add the keys later by reconfiguring.",
         "data": {
           "ncp_key_id": "NCP Maps API Key ID",
           "ncp_key": "NCP Maps API Key",
@@ -47,11 +47,15 @@
   "services": {
     "search_place": {
       "name": "Search place",
-      "description": "Searches Naver Map for a place by keyword and returns up to the top 5 results, each with coordinates, addresses, and a map link.",
+      "description": "Searches Naver Map for a place by keyword and returns up to the top 5 results, each with coordinates, distance, addresses, and a map link. Like the Naver Map app, places near a point (default: home) come first.",
       "fields": {
         "query": {
           "name": "Query",
           "description": "Search keyword, e.g. a place or business name."
+        },
+        "near": {
+          "name": "Near",
+          "description": "Rank results around this point: an entity with a location (e.g. a person) or a latitude/longitude value. Defaults to the home location."
         }
       }
     },

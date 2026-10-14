@@ -6,8 +6,9 @@ SOURCE = "naver_map"
 
 API_PROMPT = (
     "You can use these tools to search places and get directions in Korea via "
-    "Naver Map. Use naver_map__search_place for a plain keyword search "
-    "anywhere. Use naver_map__search_nearby to search around a specific center "
+    "Naver Map. Use naver_map__search_place for a keyword search, ranked "
+    "around near (default home; pass the user's person when they ask for "
+    "something near them). Use naver_map__search_nearby to search around a specific center "
     "point (an entity_id like a zone/person/device_tracker, or a "
     "latitude/longitude), passing exactly one of category or query. Use "
     "naver_map__geocode_address to convert an address string to coordinates. "
