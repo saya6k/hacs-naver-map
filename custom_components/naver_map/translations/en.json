@@ -151,7 +151,7 @@
         },
         "include_alternatives": {
           "name": "Include alternative routes",
-          "description": "Public transit only: also return every route Naver suggests as `alternatives`, each with its labels (best, minimum_duration, minimum_transfer, minimum_walking), vehicle types, walking time, and fare. Null for other modes."
+          "description": "Transit and car only: also return every route offered as `alternatives` — for cars the best, fastest, and toll-free routes (with toll and fuel cost), for transit each route with its labels (best, minimum_duration, minimum_transfer, minimum_walking), vehicle types, walking time, and fare. Null for walk and bicycle."
         }
       }
     }

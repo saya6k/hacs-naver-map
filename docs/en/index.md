@@ -60,7 +60,7 @@ The panel opens on the map alone: tap a tab to open it, and tap the open tab aga
 2. Choose **Car**, **Transit**, **Walk**, or **Bicycle**.
 3. The route line is drawn on the map with the travel time, distance, and arrival time (plus transfers and fare for transit), and a link opens the same route in Naver Map. Drag a marker to adjust a point; the route is looked up again after a short pause.
 4. **Transit** lists every route Naver suggests, marked **Best**, **Fastest**, **Fewest transfers**, or **Least walking**, with a bus / subway filter, a sort, times, transfers, walking time, fare, and a line-colored bar of the rides. The selected route is drawn on the map and shows each ride (line, direction, boarding and alighting stops, stop count, times, and **live arrivals** at the boarding stop, with a refresh button) and walk.
-5. **Route details** for car, walk, and bicycle list the turn-by-turn steps.
+5. **Car** offers the best, fastest, and toll-free routes (one Directions 5 call), each with its toll and fuel cost; the selected one is drawn and lists its turn-by-turn steps. **Route details** for walk and bicycle list the turn-by-turn steps.
 
 The map opens at your current location (a blue dot) when the browser shares it — this needs Home Assistant over HTTPS and location permission; the Android companion app's web view does not share it. Otherwise it opens at your person's location, else home. The location button re-centers the map, and the category shortcuts search around the same point.
 
@@ -176,15 +176,17 @@ data:
   mode: car                         # car | transit | walk | bicycle
   include_geometry: false           # true adds the route line as geometry
   include_steps: false              # true adds turn-by-turn / per-ride steps
-  include_alternatives: false       # transit: true lists every suggested route
+  include_alternatives: false       # car/transit: true lists every suggested route
 response_variable: route
 # route: route_url / mode / duration(s) / distance(m) / arrival_time / legs[]
 #        (+ geometry: [[latitude, longitude], …] or null with include_geometry)
 #        (+ steps: [{instruction, distance, duration, …}] or null with include_steps;
 #         transit steps add type, lines, color, headsign, from, to, stops, times,
 #         and stop_id / route_ids / way for get_transit_arrivals)
-#        (+ alternatives (transit): [{duration, distance, transfers, fare, walking_duration,
-#         departure_time, arrival_time, vehicle_types, labels, …}] with include_alternatives)
+#        (+ alternatives with include_alternatives — car: [{duration, distance, arrival_time,
+#         toll_fare, fuel_price, labels (best/minimum_duration/toll_free), …}], transit:
+#         [{duration, distance, transfers, fare, walking_duration, departure_time,
+#         arrival_time, vehicle_types, labels, …}])
 ```
 
 See `custom_components/naver_map/services.yaml` for all fields.

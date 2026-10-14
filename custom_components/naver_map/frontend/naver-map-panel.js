@@ -147,7 +147,10 @@ const STRINGS = {
       minimum_duration: "Fastest",
       minimum_transfer: "Fewest transfers",
       minimum_walking: "Least walking",
+      toll_free: "Toll-free",
     },
+    toll: (won) => (won ? `Tolls ${won.toLocaleString()} KRW` : "No tolls"),
+    fuel: (won) => `Fuel ${won.toLocaleString()} KRW`,
     distance: "Distance",
     arrival: "Arrival",
     arrives: (time) => `Arrives ${time}`,
@@ -244,7 +247,10 @@ const STRINGS = {
       minimum_duration: "최소시간",
       minimum_transfer: "최소환승",
       minimum_walking: "최소도보",
+      toll_free: "무료도로",
     },
+    toll: (won) => (won ? `통행료 ${won.toLocaleString()}원` : "통행료 없음"),
+    fuel: (won) => `유류비 ${won.toLocaleString()}원`,
     distance: "거리",
     arrival: "도착 예정",
     arrives: (time) => `${time} 도착`,
@@ -1482,7 +1488,7 @@ class NaverMapPanel extends HTMLElement {
         mode: this._mode,
         include_geometry: true,
         include_steps: true,
-        include_alternatives: this._mode === "transit",
+        include_alternatives: this._mode === "transit" || this._mode === "car",
       });
       if (requestId !== this._requestId) return; // a newer lookup superseded this one
       this._route = route;
@@ -1916,7 +1922,13 @@ class NaverMapPanel extends HTMLElement {
     if (route.duration == null) {
       return `<div class="card"><p class="muted">${t.noEta}</p>${this._routeAppLink(route)}</div>`;
     }
-    if (route.alternatives?.length) return this._renderTransit(route);
+    if (route.alternatives?.length && route.mode === "transit") return this._renderTransit(route);
+    if (route.alternatives?.length) {
+      const cards = route.alternatives
+        .map((alt, index) => this._renderAlternative(route, alt, index))
+        .join("");
+      return `<ul class="list">${cards}</ul>`;
+    }
     return `
       <div class="card summary">
         <div class="big">${this._formatDuration(route.duration)}</div>
@@ -1960,6 +1972,25 @@ class NaverMapPanel extends HTMLElement {
     const labels = (alt.labels || [])
       .map((label) => `<span class="label">${t.labels[label] || escapeHtml(label)}</span>`)
       .join("");
+    if (route.mode !== "transit") {
+      // Car: Directions 5's best / fastest / toll-free routes with their costs.
+      const facts = [
+        this._formatDistance(alt.distance),
+        alt.toll_fare != null ? t.toll(alt.toll_fare) : null,
+        alt.fuel_price != null ? t.fuel(alt.fuel_price) : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      return `
+        <li class="card alternative ${active ? "active" : ""}">
+          <button class="plain" data-action="alternative" data-index="${index}">
+            ${labels ? `<div class="labels">${labels}</div>` : ""}
+            <div class="headline"><span class="big">${this._formatDuration(alt.duration)}</span><small>${t.arrives(this._formatTime(alt.arrival_time))}</small></div>
+            <small>${facts}</small>
+          </button>
+          ${active ? `${this._renderSteps({ ...alt, mode: route.mode })}${this._routeAppLink(route)}` : ""}
+        </li>`;
+    }
     const times =
       alt.departure_time && alt.arrival_time
         ? `${this._formatTime(alt.departure_time)} – ${this._formatTime(alt.arrival_time)}`

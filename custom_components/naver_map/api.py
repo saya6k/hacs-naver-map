@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from typing import Any
@@ -85,6 +85,19 @@ class RouteResult:
     distance: int
     path: RoutePath = None
     steps: RouteSteps = None
+    # Car routes only: what the route was picked for, and its costs in KRW.
+    labels: tuple[str, ...] = ()
+    toll_fare: int | None = None
+    fuel_price: int | None = None
+
+
+# Directions 5 options asked in one call (it takes up to three, `:`-joined),
+# mapped to the labels transit routes use (plus toll_free).
+DRIVING_OPTIONS = {
+    "traoptimal": "best",
+    "trafast": "minimum_duration",
+    "traavoidtoll": "toll_free",
+}
 
 
 @dataclass(slots=True, frozen=True)
@@ -272,17 +285,21 @@ class NcpMapsApi:
         )
         return list(data["addresses"])
 
-    async def async_get_driving_route(
+    async def async_get_driving_routes(
         self,
         origin: ResolvedPoint,
         destination: ResolvedPoint,
         waypoints: list[ResolvedPoint],
-    ) -> RouteResult | None:
-        """Query Directions 5 for a car route, or None if the lookup fails."""
+    ) -> list[RouteResult]:
+        """Query Directions 5 for the best, fastest, and toll-free car routes in one call.
+
+        Options that pick the same route are merged into one route with both
+        labels. An empty list means the lookup failed.
+        """
         params: dict[str, str | int] = {
             "start": _coord(origin),
             "goal": _coord(destination),
-            "option": "traoptimal",
+            "option": ":".join(DRIVING_OPTIONS),
         }
         if waypoints:
             params["waypoints"] = "|".join(_coord(p) for p in waypoints)
@@ -294,17 +311,34 @@ class NcpMapsApi:
             data = await resp.json(content_type=None)
             if data.get("code") != 0:
                 raise ValueError(f"code={data.get('code')} {data.get('message')}")
-            route = data["route"]["traoptimal"][0]
-            summary = route["summary"]
-            return RouteResult(
-                duration=int(summary["duration"]) // 1000,
-                distance=int(summary["distance"]),
-                path=_read_path("driving", _lng_lat_pairs, route),
-                steps=_read_steps("driving", _driving_steps, route),
-            )
+            routes: dict[tuple[Any, ...], RouteResult] = {}
+            for option, label in DRIVING_OPTIONS.items():
+                if not data["route"].get(option):
+                    continue
+                route = data["route"][option][0]
+                summary = route["summary"]
+                # The same road under two options can differ by milliseconds of
+                # real-time duration, so it is matched by distance, tolls, and line.
+                key = (summary["distance"], summary.get("tollFare"), len(route.get("path") or ()))
+                if key in routes:
+                    same = routes[key]
+                    routes[key] = replace(same, labels=(*same.labels, label))
+                    continue
+                routes[key] = RouteResult(
+                    duration=int(summary["duration"]) // 1000,
+                    distance=int(summary["distance"]),
+                    path=_read_path("driving", _lng_lat_pairs, route),
+                    steps=_read_steps("driving", _driving_steps, route),
+                    labels=(label,),
+                    toll_fare=summary.get("tollFare"),
+                    fuel_price=summary.get("fuelPrice"),
+                )
+            if not routes:
+                raise ValueError("no route")
+            return list(routes.values())
         except _ROUTE_ERRORS as err:
             _LOGGER.warning("Naver driving route lookup failed, ETA unavailable: %s", err)
-            return None
+            return []
 
 
 async def _async_get_web_json(

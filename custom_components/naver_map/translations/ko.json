@@ -151,7 +151,7 @@
         },
         "include_alternatives": {
           "name": "다른 경로 포함",
-          "description": "대중교통 전용: 네이버가 제안하는 모든 경로를 `alternatives`로 함께 반환합니다. 각 경로에 라벨(best·minimum_duration·minimum_transfer·minimum_walking), 교통수단, 도보 시간, 요금이 포함됩니다. 다른 이동수단은 null입니다."
+          "description": "대중교통·자동차 전용: 제안된 모든 경로를 `alternatives`로 함께 반환합니다. 자동차는 최적·최소시간·무료도로 우선 경로(통행료·유류비 포함), 대중교통은 라벨(best·minimum_duration·minimum_transfer·minimum_walking)·교통수단·도보 시간·요금이 포함됩니다. 도보·자전거는 null입니다."
         }
       }
     }

@@ -61,7 +61,7 @@ NCP Maps는 월 무료 제공량이 있는 유료 서비스입니다(작성 시�
 2. **자동차**, **대중교통**, **도보**, **자전거** 중 하나를 고릅니다.
 3. 지도에 경로선이 그려지고 소요 시간·거리·도착 예정 시각(대중교통은 환승·요금 포함)과 네이버 지도에서 같은 경로를 여는 링크가 표시됩니다. 마커를 끌어 지점을 옮기면 잠시 뒤 경로를 다시 조회합니다.
 4. **대중교통**은 네이버가 제안하는 모든 경로를 **최적**·**최소시간**·**최소환승**·**최소도보** 표시와 함께 보여주며, 버스/지하철 필터, 정렬, 시각, 환승, 도보 시간, 요금, 노선 색 막대를 제공합니다. 선택한 경로는 지도에 그려지고 승차 구간(노선, 방면, 승·하차 정류장, 정류장 수, 시각, 승차 정류장의 **실시간 도착**과 새로고침 버튼)과 도보 구간을 보여줍니다.
-5. 자동차·도보·자전거의 **상세 경로**에는 회전 안내가 표시됩니다.
+5. **자동차**는 최적·최소시간·무료도로 경로를 보여주며(Directions 5 한 번 호출), 각각 통행료와 유류비가 표시됩니다. 선택한 경로는 지도에 그려지고 회전 안내가 나옵니다. 도보·자전거의 **상세 경로**에는 회전 안내가 표시됩니다.
 
 지도는 브라우저가 위치를 알려주면 현재 위치(파란 점)에서 시작합니다. 이때 HA가 HTTPS로 접속돼 있어야 하고 위치 권한이 필요하며, Android 컴패니언 앱의 웹뷰는 위치를 알려주지 않습니다. 현재 위치를 못 받으면 내 person 위치, 그것도 없으면 집에서 시작합니다. 위치 버튼으로 다시 가운데로 맞출 수 있고, 카테고리 검색도 같은 위치를 기준으로 합니다.
 
@@ -177,14 +177,15 @@ data:
   mode: car                         # car | transit | walk | bicycle
   include_geometry: false           # true면 경로선을 geometry로 추가
   include_steps: false              # true면 회전 안내/승차 구간을 steps로 추가
-  include_alternatives: false       # 대중교통: true면 제안 경로 전체를 추가
+  include_alternatives: false       # 자동차·대중교통: true면 제안 경로 전체를 추가
 response_variable: route
 # route: route_url / mode / duration(초) / distance(m) / arrival_time / legs[]
 #        (include_geometry 시 + geometry: [[위도, 경도], …] 또는 null)
 #        (include_steps 시 + steps: [{instruction, distance, duration, …}] 또는 null;
 #         대중교통은 type, lines, color, headsign, from, to, stops, 시각과
 #         get_transit_arrivals용 stop_id / route_ids / way 추가)
-#        (include_alternatives 시 대중교통 + alternatives: [{duration, distance, transfers, fare,
+#        (include_alternatives 시 + alternatives — 자동차: [{duration, distance, arrival_time,
+#         toll_fare, fuel_price, labels(best/minimum_duration/toll_free), …}], 대중교통: [{duration, distance, transfers, fare,
 #         walking_duration, departure_time, arrival_time, vehicle_types, labels, …}])
 ```
 
