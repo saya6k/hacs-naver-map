@@ -369,3 +369,196 @@ async def test_unreadable_geometry_keeps_eta_with_null_path(
 
     assert route == RouteResult(duration=1047, distance=876, path=None)
     assert "geometry" in caplog.text
+
+
+async def test_driving_route_parses_guide_steps(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Directions 5 `guide` entries become steps with seconds (from ms) and meters."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 600000, "distance": 4200},
+                        "path": [[127.0276, 37.4979], [127.0364, 37.5006]],
+                        "guide": [
+                            {
+                                "pointIndex": 1,
+                                "type": 3,
+                                "instructions": "테헤란로 방면으로 우회전",
+                                "distance": 300,
+                                "duration": 60000,
+                            },
+                        ],
+                    }
+                ]
+            },
+        },
+    )
+
+    route = await _maps_api(hass).async_get_driving_route(ORIGIN, DESTINATION, [])
+
+    assert route is not None
+    assert route.steps == [
+        {"instruction": "테헤란로 방면으로 우회전", "distance": 300, "duration": 60}
+    ]
+
+
+async def test_transit_route_parses_ride_and_walk_steps(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Transit steps keep lines, color, headsign, stations, and KST times (minutes → s)."""
+    aioclient_mock.get(
+        TRANSIT_ROUTE_URL,
+        json={
+            "paths": [
+                {
+                    "duration": 30,
+                    "distance": 9000,
+                    "fare": 1500,
+                    "transferCount": 0,
+                    "legs": [
+                        {
+                            "steps": [
+                                {
+                                    "type": "WALKING",
+                                    "instruction": "도보 75m",
+                                    "distance": 75,
+                                    "duration": 2,
+                                    "departureTime": "2026-10-14T16:06:00",
+                                    "arrivalTime": "2026-10-14T16:08:04",
+                                    "routes": [],
+                                    "stations": [],
+                                },
+                                {
+                                    "type": "BUS",
+                                    "instruction": "버스 승차",
+                                    "distance": 2785,
+                                    "duration": 10,
+                                    "headsign": "옥수동회차지",
+                                    "departureTime": "2026-10-14T16:14:38",
+                                    "arrivalTime": "2026-10-14T16:25:16",
+                                    "routes": [
+                                        {"name": "421", "type": {"color": "#386de8"}},
+                                        {"name": "400", "type": {"color": "#386de8"}},
+                                    ],
+                                    "stations": [
+                                        {"name": "강남역"},
+                                        {"name": "논현역"},
+                                        {"name": "신사역"},
+                                    ],
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    route = await _route_api(hass).async_get_transit_route(ORIGIN, DESTINATION)
+
+    assert route is not None
+    assert route.steps == [
+        {
+            "type": "walk",
+            "instruction": "도보 75m",
+            "distance": 75,
+            "duration": 120,
+            "departure_time": "2026-10-14T16:06:00+09:00",
+            "arrival_time": "2026-10-14T16:08:04+09:00",
+        },
+        {
+            "type": "bus",
+            "instruction": "버스 승차",
+            "distance": 2785,
+            "duration": 600,
+            "departure_time": "2026-10-14T16:14:38+09:00",
+            "arrival_time": "2026-10-14T16:25:16+09:00",
+            "lines": ["421", "400"],
+            "color": "#386de8",
+            "headsign": "옥수동회차지",
+            "from": "강남역",
+            "to": "신사역",
+            "stops": 2,
+        },
+    ]
+
+
+async def test_walk_route_parses_turn_steps(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Walk steps with a `turnDesc` become steps; blank turns are skipped."""
+    aioclient_mock.get(
+        WALK_ROUTE_URL,
+        json={
+            "routes": [
+                {
+                    "summary": {"duration": 288, "distance": 201},
+                    "legs": [
+                        {
+                            "steps": [
+                                {"turnDesc": "", "distance": 0, "duration": 0, "path": None},
+                                {
+                                    "turnDesc": "강남역 10번 출구",
+                                    "distance": 120,
+                                    "duration": 213,
+                                    "path": "127.0276,37.4979 127.0270,37.4987",
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    route = await _route_api(hass).async_get_walk_route([ORIGIN, DESTINATION])
+
+    assert route is not None
+    assert route.steps == [{"instruction": "강남역 10번 출구", "distance": 120, "duration": 213}]
+
+
+async def test_bike_route_parses_guide_steps_without_markup(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Bike `guide.instructions` lose their <b> tags; content-less marker steps are skipped."""
+    aioclient_mock.get(
+        BIKE_ROUTE_URL,
+        json={
+            "routes": [
+                {
+                    "summary": {"duration": 72, "distance": 321},
+                    "legs": [
+                        {
+                            "steps": [
+                                {
+                                    "summary": {"distance": 0, "duration": 0},
+                                    "guide": {"content": "", "instructions": "A"},
+                                    "path": "",
+                                },
+                                {
+                                    "summary": {"distance": 321, "duration": 72},
+                                    "guide": {
+                                        "content": "321m 이동",
+                                        "instructions": "<b>테헤란로</b>를 따라 321m 이동",
+                                    },
+                                    "path": "127.0276,37.4979 127.0294,37.4984",
+                                },
+                            ]
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    route = await _route_api(hass).async_get_bike_route(ORIGIN, DESTINATION)
+
+    assert route is not None
+    assert route.steps == [
+        {"instruction": "테헤란로를 따라 321m 이동", "distance": 321, "duration": 72}
+    ]

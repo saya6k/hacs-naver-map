@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from typing import Any
 
@@ -87,6 +89,12 @@ class NaverSearchApi:
 
 # A route line as [lat, lng] points (WGS84), or None when it could not be read.
 type RoutePath = list[tuple[float, float]] | None
+# Turn-by-turn (or, for transit, per-ride) steps, or None when they could not be read.
+type RouteSteps = list[dict[str, Any]] | None
+
+# Transit step times are naive Korea Standard Time (no DST).
+_KST = timezone(timedelta(hours=9))
+_TAG = re.compile(r"<[^>]+>")
 
 
 @dataclass(slots=True, frozen=True)
@@ -96,6 +104,7 @@ class RouteResult:
     duration: int
     distance: int
     path: RoutePath = None
+    steps: RouteSteps = None
 
 
 @dataclass(slots=True, frozen=True)
@@ -107,20 +116,103 @@ class TransitResult:
     transfers: int
     fare: int
     path: RoutePath = None
+    steps: RouteSteps = None
+
+
+def _read_optional[T](
+    label: str, part: str, parse: Callable[[Any], list[T]], data: Any
+) -> list[T] | None:
+    """Parse an optional route part best-effort: a failure drops only that part, not the ETA."""
+    try:
+        parsed = parse(data)
+        if not parsed:
+            raise ValueError(f"empty {part}")
+    except _ROUTE_ERRORS as err:
+        _LOGGER.warning("Naver %s route %s unreadable, left out: %s", label, part, err)
+        return None
+    return parsed
 
 
 def _read_path(
     label: str, parse: Callable[[Any], list[tuple[float, float]]], data: Any
 ) -> RoutePath:
-    """Parse a route line best-effort: a failure drops only the line, not the ETA."""
-    try:
-        path = parse(data)
-        if not path:
-            raise ValueError("empty path")
-    except _ROUTE_ERRORS as err:
-        _LOGGER.warning("Naver %s route geometry unreadable, line unavailable: %s", label, err)
-        return None
-    return path
+    return _read_optional(label, "geometry", parse, data)
+
+
+def _read_steps(
+    label: str, parse: Callable[[Any], list[dict[str, Any]]], data: Any
+) -> RouteSteps:
+    return _read_optional(label, "steps", parse, data)
+
+
+def _driving_steps(data: Any) -> list[dict[str, Any]]:
+    """Directions 5 `guide`: instructions with distance (m) and duration (ms)."""
+    return [
+        {
+            "instruction": guide["instructions"],
+            "distance": int(guide["distance"]),
+            "duration": int(guide["duration"]) // 1000,
+        }
+        for guide in data["guide"]
+    ]
+
+
+def _walk_steps(data: Any) -> list[dict[str, Any]]:
+    """walk `legs[].steps[]`: `turnDesc` turns (blank ones skipped), duration in seconds."""
+    return [
+        {
+            "instruction": step["turnDesc"],
+            "distance": int(step["distance"]),
+            "duration": int(step["duration"]),
+        }
+        for leg in data["legs"]
+        for step in leg["steps"]
+        if step.get("turnDesc")
+    ]
+
+
+def _bike_steps(data: Any) -> list[dict[str, Any]]:
+    """bike `legs[].steps[]`: HTML `guide.instructions`; marker steps have no `content`."""
+    return [
+        {
+            "instruction": _TAG.sub("", step["guide"]["instructions"]),
+            "distance": int(step["summary"]["distance"]),
+            "duration": int(step["summary"]["duration"]),
+        }
+        for leg in data["legs"]
+        for step in leg["steps"]
+        if step["guide"].get("content")
+    ]
+
+
+def _kst(value: str) -> str:
+    return datetime.fromisoformat(value).replace(tzinfo=_KST).isoformat()
+
+
+def _transit_steps(data: Any) -> list[dict[str, Any]]:
+    """pubtrans `legs[].steps[]`: walks and rides (duration in minutes, naive KST times)."""
+    steps = []
+    for leg in data["legs"]:
+        for raw in leg["steps"]:
+            step: dict[str, Any] = {
+                "type": "walk" if raw["type"] == "WALKING" else raw["type"].lower(),
+                "instruction": raw["instruction"],
+                "distance": int(raw["distance"]),
+                "duration": int(raw["duration"]) * 60,
+                "departure_time": _kst(raw["departureTime"]),
+                "arrival_time": _kst(raw["arrivalTime"]),
+            }
+            if routes := raw.get("routes"):
+                stations = raw["stations"]
+                # Several bus lines can serve the same ride; any of them works.
+                step["lines"] = [route["name"] for route in routes]
+                step["color"] = routes[0]["type"].get("color")
+                step["headsign"] = raw.get("headsign")
+                step["from"] = stations[0]["name"]
+                step["to"] = stations[-1]["name"]
+                step["stops"] = len(stations) - 1
+            steps.append(step)
+    return steps
 
 
 def _lng_lat_pairs(data: Any) -> list[tuple[float, float]]:
@@ -215,6 +307,7 @@ class NcpMapsApi:
                 duration=int(summary["duration"]) // 1000,
                 distance=int(summary["distance"]),
                 path=_read_path("driving", _lng_lat_pairs, route),
+                steps=_read_steps("driving", _driving_steps, route),
             )
         except _ROUTE_ERRORS as err:
             _LOGGER.warning("Naver driving route lookup failed, ETA unavailable: %s", err)
@@ -249,6 +342,7 @@ class NaverMapRouteApi:
                 transfers=int(path["transferCount"]),
                 fare=int(path["fare"]),
                 path=_read_path("transit", _step_points, path),
+                steps=_read_steps("transit", _transit_steps, path),
             )
         except _ROUTE_ERRORS as err:
             _LOGGER.warning("Naver transit route lookup failed, ETA unavailable: %s", err)
@@ -266,6 +360,7 @@ class NaverMapRouteApi:
                 duration=int(summary["duration"]),
                 distance=int(summary["distance"]),
                 path=_read_path("walk", _step_path_strings, route),
+                steps=_read_steps("walk", _walk_steps, route),
             )
         except _ROUTE_ERRORS as err:
             _LOGGER.warning("Naver walk route lookup failed, ETA unavailable: %s", err)
@@ -290,6 +385,7 @@ class NaverMapRouteApi:
                 duration=int(summary["duration"]),
                 distance=int(summary["distance"]),
                 path=_read_path("bike", _step_path_strings, route),
+                steps=_read_steps("bike", _bike_steps, route),
             )
         except _ROUTE_ERRORS as err:
             _LOGGER.warning("Naver bike route lookup failed, ETA unavailable: %s", err)

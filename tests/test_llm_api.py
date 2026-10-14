@@ -202,7 +202,7 @@ async def test_get_directions_tool_builds_route(
 async def test_get_directions_tool_never_returns_geometry(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
-    """The LLM tool omits route geometry even when the lookup returns a path."""
+    """The LLM tool omits route geometry and steps even when the lookup returns them."""
     await _setup_integration(hass)
     aioclient_mock.get(
         DRIVING_URL,
@@ -213,6 +213,7 @@ async def test_get_directions_tool_never_returns_geometry(
                     {
                         "summary": {"duration": 600000, "distance": 4200},
                         "path": [[127.0, 37.5], [127.1, 37.4]],
+                        "guide": [{"instructions": "우회전", "distance": 300, "duration": 60000}],
                     }
                 ]
             },
@@ -232,6 +233,7 @@ async def test_get_directions_tool_never_returns_geometry(
 
     assert result.data["duration"] == 600
     assert "geometry" not in result.data
+    assert "steps" not in result.data
 
 
 async def test_get_directions_tool_rejects_too_many_waypoints(hass: HomeAssistant) -> None:

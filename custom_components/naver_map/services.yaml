@@ -92,3 +92,7 @@ get_directions:
       default: false
       selector:
         boolean:
+    include_steps:
+      default: false
+      selector:
+        boolean:

@@ -83,6 +83,10 @@
         "include_geometry": {
           "name": "경로선 포함",
           "description": "경로선을 `geometry`([위도, 경도] 점 목록)로 함께 반환합니다. 가져오지 못하면 null입니다."
+        },
+        "include_steps": {
+          "name": "경로 세부 단계 포함",
+          "description": "`steps`를 함께 반환합니다: 회전 안내, 대중교통은 도보·승차 구간별 노선·정류장·시각. 가져오지 못하면 null입니다."
         }
       }
     }

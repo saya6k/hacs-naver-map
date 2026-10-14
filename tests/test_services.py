@@ -410,3 +410,33 @@ async def test_get_directions_geometry_null_without_lookup(
     )
 
     assert response["geometry"] is None
+
+
+async def test_get_directions_steps_only_when_requested(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """include_steps=true adds `steps`; it is absent by default."""
+    aioclient_mock.get(
+        DRIVING_URL,
+        json={
+            "code": 0,
+            "route": {
+                "traoptimal": [
+                    {
+                        "summary": {"duration": 900000, "distance": 12000},
+                        "guide": [{"instructions": "우회전", "distance": 300, "duration": 60000}],
+                    }
+                ]
+            },
+        },
+    )
+    data = {
+        "origin": {"latitude": 37.5665, "longitude": 126.978},
+        "destination": {"latitude": 37.4, "longitude": 127.1},
+    }
+
+    default = await _call(hass, "get_directions", data)
+    with_steps = await _call(hass, "get_directions", {**data, "include_steps": True})
+
+    assert "steps" not in default
+    assert with_steps["steps"] == [{"instruction": "우회전", "distance": 300, "duration": 60}]

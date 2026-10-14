@@ -83,6 +83,10 @@
         "include_geometry": {
           "name": "Include route line",
           "description": "Also return the route line as `geometry` ([latitude, longitude] points), or null when it is unavailable."
+        },
+        "include_steps": {
+          "name": "Include route steps",
+          "description": "Also return `steps`: turn-by-turn directions, or for public transit each walk and ride with its lines, stations, and times; null when unavailable."
         }
       }
     }
