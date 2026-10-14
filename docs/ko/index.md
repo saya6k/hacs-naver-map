@@ -188,7 +188,9 @@ response_variable: route
 
 ## Assist 지원
 
-같은 네 가지 기능이 LLM 도구 API(`naver_map__search_place`, `naver_map__search_nearby`, `naver_map__geocode_address`, `naver_map__get_directions`)로도 등록되어, AI 기반 Assist 파이프라인(예: Google Generative AI Conversation, OpenAI Conversation)이 자연어로 호출할 수 있습니다. 대화 에이전트 옵션의 노출 LLM API에서 **Naver Map**을 선택하세요. 장소·주변 검색 결과는 카드를 지원하는 Assist 화면(예: voice-satellite 대시보드)에 시각 카드로도 표시됩니다.
+같은 기능이 LLM 도구 API(`naver_map__search_place`, `naver_map__search_nearby`, `naver_map__geocode_address`, `naver_map__get_directions`, `naver_map__get_place_details`, 그리고 요청한 사용자의 패널 저장 장소를 읽는 `naver_map__get_saved_places` — "자주 가는 카페까지 얼마나 걸려?" 같은 질문이 가능)로도 등록되어, AI 기반 Assist 파이프라인(예: Google Generative AI Conversation, OpenAI Conversation)이 자연어로 호출할 수 있습니다. 대화 에이전트 옵션의 노출 LLM API에서 **Naver Map**을 선택하세요. 장소·주변 검색 결과는 카드를 지원하는 Assist 화면(예: voice-satellite 대시보드)에 시각 카드로도 표시됩니다.
+
+저장 장소는 Home Assistant 사용자별이라, 음성 위성처럼 로그인한 사용자가 없는 요청에서는 `naver_map__get_saved_places`가 아무것도 반환하지 않습니다. 구역은 엔티티이므로 그런 경우에도 쓸 수 있습니다.
 
 MCP 클라이언트는 대화 에이전트 설정과 무관하게 `/api/mcp/naver_map`(관리자 권한 토큰 필요)으로 직접 접근할 수도 있습니다.
 

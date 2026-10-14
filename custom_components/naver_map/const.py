@@ -67,6 +67,10 @@ DIRECTIONS_LINK_MODES: Final = {
     MODE_BICYCLE: "bike",
 }
 
+# Frontend user-data key under which the panel keeps each user's saved places
+# (favorites and filed zones, in folders); read by the saved-places LLM tool.
+SAVED_PLACES_KEY: Final = "naver_map_saved"
+
 MAX_WAYPOINTS: Final = 5  # Directions 5 limit
 MAX_SEARCH_RESULTS: Final = 5  # local.json `display` cap
 

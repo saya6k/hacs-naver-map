@@ -26,7 +26,7 @@ async def _setup_integration(hass: HomeAssistant) -> MockConfigEntry:
 
 
 async def test_async_get_tools_returns_tools_for_naver_map_api(hass: HomeAssistant) -> None:
-    """The hook returns naver_map's 4 tools + prompt for our own api_id with a loaded entry."""
+    """The hook returns naver_map's tools + prompt for our own api_id with a loaded entry."""
     await _setup_integration(hass)
 
     result = async_get_tools(hass, _llm_context(), DOMAIN)
@@ -37,6 +37,8 @@ async def test_async_get_tools_returns_tools_for_naver_map_api(hass: HomeAssista
         "naver_map__search_nearby",
         "naver_map__geocode_address",
         "naver_map__get_directions",
+        "naver_map__get_place_details",
+        "naver_map__get_saved_places",
     }
     assert result.prompt
 
