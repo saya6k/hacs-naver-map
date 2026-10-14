@@ -1026,8 +1026,11 @@ class NaverMapPanel extends HTMLElement {
 }
 
 const STYLE = `
-  :host { display: block; height: 100vh; height: 100dvh; background: var(--primary-background-color);
-    color: var(--primary-text-color); --rail-w: 72px; --nav-h: 60px; }
+  :host { display: block; height: 100vh; height: 100dvh; box-sizing: border-box;
+    background: var(--primary-background-color); color: var(--primary-text-color); --rail-w: 72px; --nav-h: 60px;
+    /* Registered with handle_safe_area: keep clear of notches here, and of the
+       home indicator in the bottom tab bar (phone) or the sheet (wider). */
+    padding: var(--safe-area-inset-top, 0px) var(--safe-area-inset-right, 0px) 0 var(--safe-area-inset-left, 0px); }
   ha-icon { --mdc-icon-size: 22px; }
 
   /* Tablet and wider: icon rail | side panel | map */
@@ -1042,15 +1045,17 @@ const STYLE = `
   .sheet { grid-area: sheet; display: flex; flex-direction: column; min-height: 0;
     border-right: 1px solid var(--divider-color); background: var(--primary-background-color); }
   .handle { display: none; }
-  .content { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .content { flex: 1; overflow-y: auto; padding: 12px 12px calc(12px + var(--safe-area-inset-bottom, 0px));
+    display: flex; flex-direction: column; gap: 12px; }
   .map { grid-area: map; position: relative; min-height: 0; }
   .map ha-map { display: block; height: 100%; }
 
   /* Phone: map above a draggable bottom sheet, bottom tab bar */
   :host(.compact) .layout { grid-template-columns: 1fr;
-    grid-template-rows: 1fr var(--sheet-h, 45%) var(--nav-h); grid-template-areas: "map" "sheet" "nav"; }
+    grid-template-rows: 1fr var(--sheet-h, 45%) calc(var(--nav-h) + var(--safe-area-inset-bottom, 0px)); grid-template-areas: "map" "sheet" "nav"; }
   :host(.compact) .layout:not(.dragging) { transition: grid-template-rows 0.2s ease; }
-  :host(.compact) .nav { flex-direction: row; justify-content: center; padding: 0; border-right: none;
+  :host(.compact) .nav { flex-direction: row; justify-content: center; border-right: none;
+    padding: 0 0 var(--safe-area-inset-bottom, 0px);
     border-top: 1px solid var(--divider-color); }
   :host(.compact) .nav-tabs { flex-direction: row; flex: 1; justify-content: space-around; }
   :host(.compact) .menu { position: absolute; top: 8px; right: 8px; z-index: 2; border-radius: 50%;
@@ -1060,7 +1065,7 @@ const STYLE = `
     z-index: 1; margin-top: -16px; }
   :host(.compact) .handle { display: flex; justify-content: center; padding: 8px 0 4px; cursor: grab; touch-action: none; }
   .handle span { width: 40px; height: 4px; border-radius: 2px; background: var(--divider-color); }
-  :host(.compact) .content { padding-top: 4px; }
+  :host(.compact) .content { padding-top: 4px; padding-bottom: 12px; }
 
   input, select { min-width: 0; padding: 10px; border-radius: 8px; border: 1px solid var(--divider-color);
     background: var(--card-background-color); color: var(--primary-text-color); font: inherit; }

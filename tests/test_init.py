@@ -62,6 +62,8 @@ async def test_setup_entry_registers_sidebar_panel(hass: HomeAssistant) -> None:
     custom = panel.config["_panel_custom"]
     assert custom["name"] == "naver-map-panel"
     assert custom["embed_iframe"] is False
+    # The panel pads itself for notches/home indicators instead of HA padding it.
+    assert custom["handle_safe_area"] is True
     assert custom["module_url"].startswith("/naver_map_static/naver-map-panel.js?v=")
 
 

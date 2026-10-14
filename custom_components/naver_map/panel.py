@@ -35,6 +35,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         sidebar_icon="mdi:map-marker-path",
         module_url=f"{STATIC_URL}/{PANEL_ELEMENT}.js?v={integration.version}",
         embed_iframe=False,
+        # The panel keeps its tab bar and controls clear of the safe areas itself;
+        # HA's default padding would push the full-height panel past the screen.
+        handle_safe_area=True,
         require_admin=False,
     )
 
