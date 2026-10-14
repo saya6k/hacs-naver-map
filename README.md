@@ -52,11 +52,13 @@ NCP Maps is a paid service with a monthly free quota; check the current pricing 
 
 ## Route panel
 
-Adding the integration puts a **Naver Map** entry in the sidebar (all users, not only admins). It has two tabs.
+Adding the integration puts a **Naver Map** entry in the sidebar (all users, not only admins). It has three tabs.
 
 On phone widths the map sits above a bottom sheet you can drag between three heights, with the tabs in a bottom bar; on tablets and desktops a side panel with an icon rail sits next to the map.
 
 **Places** — search a place, or tap a category (restaurants, cafes, convenience stores, pharmacies, …) to list places within 1 km of you (your person's location, else home); every result is marked on the map with its distance. Pick a result to zoom to it and see its Naver Place summary (photos, opening status, review counts, booking/order availability), open it in Naver Map, or send it to the **Directions** tab with **Origin** / **Destination**.
+
+**Saved** — Home Assistant zones are your saved places: tap one to use it as an origin or destination. Administrators can save a search result with **Save**, which creates a passive zone (ignored by presence detection) that maps, automations, and `get_directions` can use too, and remove it again here.
 
 **Directions**
 

@@ -10,10 +10,13 @@
 // JS is outside the backend translations/ files, which only cover services.
 
 const MODES = ["car", "transit", "walk", "bicycle"];
-const TABS = ["place", "route"];
+const TABS = ["place", "route", "saved"];
 const ICONS = {
   place: "mdi:magnify",
   route: "mdi:directions",
+  saved: "mdi:star",
+  save: "mdi:star-outline",
+  delete: "mdi:delete-outline",
   car: "mdi:car",
   transit: "mdi:bus",
   walk: "mdi:walk",
@@ -57,6 +60,10 @@ const COLORS = {
   activePlace: "#ff7a00",
   here: "#1a73e8",
 };
+// Saving a place creates a passive zone: an ordinary HA entity that maps,
+// automations and get_directions can use, and that presence detection ignores.
+const SAVED_ZONE = { icon: "mdi:star", radius: 50, passive: true };
+const SAME_PLACE_DEG = 0.0005; // ~50 m: a zone this close with the same name is the saved place
 const LOCATE_TIMEOUT = 8000; // ms to wait for the device position
 const START_ZOOM = 15;
 // Bottom-sheet snap heights on phone widths, as fractions of the panel height
@@ -76,7 +83,13 @@ const TRANSIT_SORTS = {
 
 const STRINGS = {
   en: {
-    tabs: { place: "Places", route: "Directions" },
+    tabs: { place: "Places", route: "Directions", saved: "Saved" },
+    save: "Save",
+    savedLabel: "Saved",
+    remove: "Remove",
+    confirmRemove: "Tap again to remove",
+    savedEmpty: "Save places from the Places tab with ☆ Save. They become Home Assistant zones.",
+    savedEmptyUser: "Places an administrator saves (as zones) appear here.",
     setOrigin: "Origin",
     setDestination: "Destination",
     origin: "Origin",
@@ -148,7 +161,13 @@ const STRINGS = {
     won: "KRW",
   },
   ko: {
-    tabs: { place: "장소 검색", route: "길찾기" },
+    tabs: { place: "장소 검색", route: "길찾기", saved: "저장" },
+    save: "저장",
+    savedLabel: "저장됨",
+    remove: "삭제",
+    confirmRemove: "한 번 더 누르면 삭제",
+    savedEmpty: "장소 검색에서 ☆ 저장을 누르면 여기에 모입니다. 저장한 장소는 Home Assistant 구역(zone)이 됩니다.",
+    savedEmptyUser: "관리자가 저장한 장소(구역)가 여기에 표시됩니다.",
     setOrigin: "출발",
     setDestination: "도착",
     origin: "출발",
@@ -257,6 +276,15 @@ function appUrl(action, params) {
     : `nmap://${action}?${query}`;
 }
 
+// Great-circle distance in meters between two [lat, lng] points.
+function distanceMeters([lat1, lng1], [lat2, lng2]) {
+  const rad = Math.PI / 180;
+  const a =
+    Math.sin(((lat2 - lat1) * rad) / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(((lng2 - lng1) * rad) / 2) ** 2;
+  return 2 * 6371000 * Math.asin(Math.sqrt(a));
+}
+
 const placeKey = (place) => `${place.place_name}|${place.latitude}|${place.longitude}`;
 const vehicleKey = (route) => [...(route.vehicle_types || [])].sort().join("+");
 
@@ -311,6 +339,8 @@ class NaverMapPanel extends HTMLElement {
     this._requeryTimer = null;
     this._entityIds = "";
     this._compact = false;
+    this._zonesKey = "";
+    this._confirmRemove = null; // zone entity_id waiting for a second tap
     this._here = null; // device position [lat, lng], when the browser shares it
     this._sheet = "peek";
   }
@@ -323,7 +353,17 @@ class NaverMapPanel extends HTMLElement {
       this._syncMapEntities();
     }
     if (this._menuButton) this._menuButton.hass = hass;
+    // Saving or removing a place changes the zones; refresh what shows them.
+    const zonesKey = this._savedZones()
+      .map((s) => `${s.entity_id}:${s.attributes.friendly_name}`)
+      .join(",");
+    const zonesChanged = zonesKey !== this._zonesKey;
+    this._zonesKey = zonesKey;
     if (first && this.isConnected) this._render();
+    else if (zonesChanged && this._tab !== "route") {
+      this._render();
+      this._drawMap();
+    }
   }
 
   get hass() {
@@ -575,6 +615,10 @@ class NaverMapPanel extends HTMLElement {
 
   _drawMap() {
     if (!this._map) return;
+    if (this._tab === "saved") {
+      this._drawSaved();
+      return;
+    }
     if (this._tab === "place") {
       this._drawPlaces();
       return;
@@ -640,6 +684,84 @@ class NaverMapPanel extends HTMLElement {
     }
   }
 
+  _drawSaved() {
+    const zones = this._savedZones();
+    this._map.paths = [];
+    this._map.editableLocations = this._hereMarkers();
+    if (zones.length) {
+      this._map.fitBounds(
+        zones.map((s) => [s.attributes.latitude, s.attributes.longitude]),
+        { pad: 0.3, zoom: 15 }
+      );
+    }
+  }
+
+  // Zones with coordinates: home first, then the rest by name.
+  _savedZones() {
+    return Object.values(this._hass?.states || {})
+      .filter(
+        (s) =>
+          s.entity_id.startsWith("zone.") &&
+          typeof s.attributes.latitude === "number" &&
+          typeof s.attributes.longitude === "number"
+      )
+      .sort(
+        (a, b) =>
+          (b.entity_id === "zone.home") - (a.entity_id === "zone.home") ||
+          (a.attributes.friendly_name || "").localeCompare(b.attributes.friendly_name || "")
+      );
+  }
+
+  _savedZoneFor(place) {
+    return this._savedZones().find(
+      (s) =>
+        s.attributes.friendly_name === place.place_name &&
+        Math.abs(s.attributes.latitude - place.latitude) < SAME_PLACE_DEG &&
+        Math.abs(s.attributes.longitude - place.longitude) < SAME_PLACE_DEG
+    );
+  }
+
+  async _savePlace(place) {
+    this._error = null;
+    try {
+      await this._hass.callWS({
+        type: "zone/create",
+        name: place.place_name,
+        latitude: place.latitude,
+        longitude: place.longitude,
+        ...SAVED_ZONE,
+      });
+    } catch (err) {
+      this._error = err.message || String(err);
+      this._render();
+    }
+  }
+
+  // Zones created in the UI (or here) are listed by zone/list; YAML zones and
+  // home are not, and cannot be removed from the panel.
+  async _removeSaved(entityId) {
+    if (this._confirmRemove !== entityId) {
+      this._confirmRemove = entityId;
+      this._render();
+      return;
+    }
+    this._confirmRemove = null;
+    const state = this._hass.states[entityId];
+    try {
+      const zones = await this._hass.callWS({ type: "zone/list" });
+      const zone = zones.find(
+        (z) =>
+          z.name === state.attributes.friendly_name &&
+          Math.abs(z.latitude - state.attributes.latitude) < 1e-6 &&
+          Math.abs(z.longitude - state.attributes.longitude) < 1e-6
+      );
+      if (zone) await this._hass.callWS({ type: "zone/delete", zone_id: zone.id });
+    } catch (err) {
+      this._error = err.message || String(err);
+      this._render();
+    }
+  }
+
   // A colored dot, cached per marker so ha-map sees the same element and keeps it.
   _markerElement(color, key = color) {
     this._markers ||= {};
@@ -699,6 +821,27 @@ class NaverMapPanel extends HTMLElement {
         break;
       case "place-search":
         this._searchPlaces();
+        break;
+      case "place-save":
+        this._savePlace(this._places[index]);
+        break;
+      case "saved-use":
+      case "saved-select": {
+        const state = this._hass.states[el.dataset.entity];
+        if (!state) break;
+        const location = [state.attributes.latitude, state.attributes.longitude];
+        if (action === "saved-select") {
+          this._map?.fitBounds([location], { zoom: 16 });
+          break;
+        }
+        const label = state.attributes.friendly_name || state.entity_id;
+        this._tab = "route";
+        this._queries[slot] = label;
+        this._setPoint(slot, { label, entityId: state.entity_id, location });
+        break;
+      }
+      case "saved-remove":
+        this._removeSaved(el.dataset.entity);
         break;
       case "nearby":
         this._searchNearby(el.dataset.category);
@@ -987,8 +1130,12 @@ class NaverMapPanel extends HTMLElement {
           ${icon(tab)}<span>${t.tabs[tab]}</span>
         </button>`
     ).join("");
-    this._content.innerHTML =
-      this._tab === "place" ? this._renderPlaceTab() : this._renderRouteTab();
+    const renderers = {
+      place: () => this._renderPlaceTab(),
+      route: () => this._renderRouteTab(),
+      saved: () => this._renderSavedTab(),
+    };
+    this._content.innerHTML = renderers[this._tab]();
   }
 
   _renderPlaceTab() {
@@ -1017,6 +1164,7 @@ class NaverMapPanel extends HTMLElement {
               <span class="dot" style="background:${COLORS.origin}"></span>${t.setOrigin}</button>
             <button class="chip" data-action="place-use" data-slot="destination" data-index="${index}">
               <span class="dot" style="background:${COLORS.destination}"></span>${t.setDestination}</button>
+            ${this._renderSaveButton(place, index)}
             ${this._openLink(
               this._details[placeKey(place)]?.place_url || place.map_url,
               appUrl("place", { lat: place.latitude, lng: place.longitude, name: place.place_name })
@@ -1041,6 +1189,55 @@ class NaverMapPanel extends HTMLElement {
       ${this._nearbyCategory ? `<small>${escapeHtml(t.nearbyOf(this._startLocation().name))}</small>` : ""}
       ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
       ${places ? `<ul class="list">${places}</ul>` : ""}`;
+  }
+
+  // Creating zones needs an administrator; others only see what is saved.
+  _renderSaveButton(place, index) {
+    const t = this._t;
+    if (this._savedZoneFor(place)) {
+      return `<span class="chip saved">${icon("saved")}${t.savedLabel}</span>`;
+    }
+    if (!this._hass.user?.is_admin) return "";
+    return `<button class="chip" data-action="place-save" data-index="${index}">${icon("save")}${t.save}</button>`;
+  }
+
+  _renderSavedTab() {
+    const t = this._t;
+    const isAdmin = this._hass.user?.is_admin;
+    const start = this._startLocation().location;
+    const zones = this._savedZones();
+    const custom = zones.filter((s) => s.entity_id !== "zone.home");
+    const cards = zones
+      .map((s) => {
+        const meters = Math.round(
+          distanceMeters(start, [s.attributes.latitude, s.attributes.longitude])
+        );
+        const removable = isAdmin && s.entity_id !== "zone.home" && s.attributes.editable;
+        const confirming = this._confirmRemove === s.entity_id;
+        return `
+        <li class="card place">
+          <button class="plain" data-action="saved-select" data-entity="${escapeHtml(s.entity_id)}">
+            <b><ha-icon class="zone-icon" icon="${escapeHtml(s.attributes.icon || "mdi:map-marker")}"></ha-icon>${escapeHtml(s.attributes.friendly_name || s.entity_id)}</b>
+            <small>${this._formatDistance(meters)}</small>
+          </button>
+          <div class="actions">
+            <button class="chip" data-action="saved-use" data-slot="origin" data-entity="${escapeHtml(s.entity_id)}">
+              <span class="dot" style="background:${COLORS.origin}"></span>${t.setOrigin}</button>
+            <button class="chip" data-action="saved-use" data-slot="destination" data-entity="${escapeHtml(s.entity_id)}">
+              <span class="dot" style="background:${COLORS.destination}"></span>${t.setDestination}</button>
+            ${
+              removable
+                ? `<button class="chip ${confirming ? "danger" : ""}" data-action="saved-remove" data-entity="${escapeHtml(s.entity_id)}">${icon("delete")}${confirming ? t.confirmRemove : t.remove}</button>`
+                : ""
+            }
+          </div>
+        </li>`;
+      })
+      .join("");
+    return `
+      ${this._error ? `<p class="error">${escapeHtml(this._error)}</p>` : ""}
+      <ul class="list">${cards}</ul>
+      ${custom.length ? "" : `<p class="muted">${isAdmin ? t.savedEmpty : t.savedEmptyUser}</p>`}`;
   }
 
   // Naver Place summary of the selected place: photos, status, reviews, services.
@@ -1353,6 +1550,10 @@ const STYLE = `
   .fact { display: flex; align-items: center; gap: 6px; font-size: 14px; }
   .fact ha-icon { --mdc-icon-size: 18px; color: var(--secondary-text-color); }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .chip ha-icon { --mdc-icon-size: 18px; }
+  .chip.saved { color: var(--primary-color); border-color: var(--primary-color); }
+  .chip.danger { color: var(--error-color); border-color: var(--error-color); }
+  .zone-icon { --mdc-icon-size: 18px; color: var(--primary-color); margin-right: 4px; vertical-align: -3px; }
   .open { display: inline-flex; align-items: center; gap: 4px; color: var(--primary-color); text-decoration: none; font-size: 14px; }
   .open ha-icon { --mdc-icon-size: 18px; }
 
