@@ -82,6 +82,9 @@ const STRINGS = {
   },
 };
 
+const APP_PACKAGE = "com.nhn.android.nmap";
+// Travel mode token in the Naver Map app's nmap://route/<mode> URLs.
+const APP_ROUTE_MODES = { car: "car", transit: "public", walk: "walk", bicycle: "bicycle" };
 const HEX_COLOR = /^#[0-9a-f]{3,8}$/i;
 const MAX_LINES = 3; // bus rides can list many interchangeable lines
 
@@ -90,6 +93,29 @@ const escapeHtml = (text) =>
     /[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]
   );
+
+function mobilePlatform() {
+  const ua = navigator.userAgent;
+  if (/Android/i.test(ua)) return "android";
+  // iPadOS reports a Mac user agent; touch support tells them apart.
+  if (/iPhone|iPad|iPod/i.test(ua) || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)) {
+    return "ios";
+  }
+  return null;
+}
+
+// Naver Map app link (nmap:// URL scheme) on phones and tablets, or null on
+// desktop. Android gets an intent:// URL so a missing app opens Play Store.
+function appUrl(action, params) {
+  const platform = mobilePlatform();
+  if (!platform) return null;
+  const query = Object.entries({ ...params, appname: location.origin })
+    .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+    .join("&");
+  return platform === "android"
+    ? `intent://${action}?${query}#Intent;scheme=nmap;package=${APP_PACKAGE};end`
+    : `nmap://${action}?${query}`;
+}
 
 // <ha-map> is lazy-loaded by the frontend and is not defined when the panel URL
 // is opened directly. Public route first (window.loadCardHelpers, set once a
@@ -495,6 +521,13 @@ class NaverMapPanel extends HTMLElement {
     });
   }
 
+  // App links replace the page, so only web links open a new tab.
+  _openLink(webUrl, app) {
+    const href = app || webUrl;
+    const target = app ? "" : ' target="_blank" rel="noopener noreferrer"';
+    return `<a class="open" href="${escapeHtml(href)}"${target}>${this._t.openInNaver}</a>`;
+  }
+
   _formatDistance(meters) {
     return meters >= 1000 ? `${(meters / 1000).toFixed(1)} km` : `${meters} m`;
   }
@@ -557,8 +590,19 @@ class NaverMapPanel extends HTMLElement {
     }
     if (!route.geometry?.length) rows.push(`<p class="muted">${t.straightLine}</p>`);
     rows.push(this._renderSteps(route));
+    const { origin, destination } = this._points;
     rows.push(
-      `<a class="open" href="${escapeHtml(route.route_url)}" target="_blank" rel="noopener noreferrer">${t.openInNaver}</a>`
+      this._openLink(
+        route.route_url,
+        appUrl(`route/${APP_ROUTE_MODES[route.mode]}`, {
+          slat: origin.location[0],
+          slng: origin.location[1],
+          sname: origin.label,
+          dlat: destination.location[0],
+          dlng: destination.location[1],
+          dname: destination.label,
+        })
+      )
     );
     return `<section class="result-box">${rows.join("")}</section>`;
   }
@@ -577,7 +621,10 @@ class NaverMapPanel extends HTMLElement {
           <div class="row">
             <button data-action="place-use" data-slot="origin" data-index="${index}">${t.setOrigin}</button>
             <button data-action="place-use" data-slot="destination" data-index="${index}">${t.setDestination}</button>
-            <a class="open" href="${escapeHtml(place.map_url)}" target="_blank" rel="noopener noreferrer">${t.openInNaver}</a>
+            ${this._openLink(
+              place.map_url,
+              appUrl("place", { lat: place.latitude, lng: place.longitude, name: place.place_name })
+            )}
           </div>
         </li>`
       )
