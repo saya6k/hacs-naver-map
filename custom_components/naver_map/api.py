@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from typing import Any
+from urllib.parse import quote
 
 import aiohttp
 
@@ -17,8 +19,10 @@ from .const import (
     BIKE_ROUTE_URL,
     DRIVING_URL,
     GEOCODE_URL,
+    INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
     MAX_SEARCH_RESULTS,
+    PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
     ROUTE_API_HEADERS,
     TRANSIT_ROUTE_URL,
@@ -338,6 +342,64 @@ class NcpMapsApi:
             return None
 
 
+async def _async_get_web_json(
+    session: aiohttp.ClientSession, url: str, params: dict[str, str]
+) -> Any:
+    """GET a map.naver.com internal endpoint with the browser-like headers it expects."""
+    async with asyncio.timeout(10):
+        resp = await session.get(url, params=params, headers=ROUTE_API_HEADERS)
+    resp.raise_for_status()
+    return await resp.json(content_type=None)
+
+
+_PLACE_CACHE_SECONDS = 3600
+_RATE_LIMIT_RETRY_SECONDS = 1.5
+
+
+class NaverPlaceApi:
+    """Best-effort client for map.naver.com place endpoints (no API key).
+
+    Naver gates its full place search behind a CAPTCHA; autocomplete and the
+    place summary are not, but may become so. A gated answer lacks the expected
+    keys and raises KeyError, which callers treat as a failed lookup.
+    """
+
+    def __init__(self, session: aiohttp.ClientSession) -> None:
+        """Store the shared session."""
+        self._session = session
+        self._summaries: dict[str, tuple[float, dict[str, Any]]] = {}
+
+    async def async_instant_search(
+        self, query: str, latitude: float, longitude: float
+    ) -> list[dict[str, Any]]:
+        """Autocomplete a place name near a point and return its place entries."""
+        data = await _async_get_web_json(
+            self._session, INSTANT_SEARCH_URL, {"query": query, "coords": f"{latitude},{longitude}"}
+        )
+        return list(data["place"])
+
+    async def async_get_place_summary(self, place_id: str) -> dict[str, Any]:
+        """Return the summary (`placeDetail`) of one place, cached for an hour.
+
+        The endpoint throttles bursts (HTTP 429, e.g. right after an
+        autocomplete call), so a 429 is retried once after a short pause.
+        """
+        cached = self._summaries.get(place_id)
+        if cached and time.monotonic() - cached[0] < _PLACE_CACHE_SECONDS:
+            return cached[1]
+        url = f"{PLACE_SUMMARY_URL}/{quote(place_id, safe='')}"
+        try:
+            data = await _async_get_web_json(self._session, url, {})
+        except aiohttp.ClientResponseError as err:
+            if err.status != HTTPStatus.TOO_MANY_REQUESTS:
+                raise
+            await asyncio.sleep(_RATE_LIMIT_RETRY_SECONDS)
+            data = await _async_get_web_json(self._session, url, {})
+        detail = dict(data["data"]["placeDetail"])
+        self._summaries[place_id] = (time.monotonic(), detail)
+        return detail
+
+
 class NaverMapRouteApi:
     """Best-effort client for map.naver.com internal route endpoints (no API key)."""
 
@@ -346,10 +408,7 @@ class NaverMapRouteApi:
         self._session = session
 
     async def _async_get(self, url: str, params: dict[str, str]) -> Any:
-        async with asyncio.timeout(10):
-            resp = await self._session.get(url, params=params, headers=ROUTE_API_HEADERS)
-        resp.raise_for_status()
-        return await resp.json(content_type=None)
+        return await _async_get_web_json(self._session, url, params)
 
     async def async_get_transit_routes(
         self, origin: ResolvedPoint, destination: ResolvedPoint

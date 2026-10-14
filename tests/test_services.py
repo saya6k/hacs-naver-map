@@ -14,12 +14,22 @@ from custom_components.naver_map.const import (
     DOMAIN,
     DRIVING_URL,
     GEOCODE_URL,
+    INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
+    PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
     TRANSIT_ROUTE_URL,
     WALK_ROUTE_URL,
 )
-from tests.const import ADDRESS_ITEM, ENTRY_DATA, REGION_RESPONSE, STARBUCKS_ITEM
+from tests.const import (
+    ADDRESS_ITEM,
+    CAPTCHA_RESPONSE,
+    ENTRY_DATA,
+    INSTANT_SEARCH_RESPONSE,
+    PLACE_SUMMARY_RESPONSE,
+    REGION_RESPONSE,
+    STARBUCKS_ITEM,
+)
 from tests.vendor.aiohttp_mock import AiohttpClientMocker
 from tests.vendor.ha_common import MockConfigEntry
 
@@ -522,3 +532,100 @@ async def test_get_directions_alternatives_null_for_other_modes(
     )
 
     assert response["alternatives"] is None
+
+
+PLACE_DETAILS = {
+    "place_id": "1086067689",
+    "place_name": "스타벅스 강남R점",
+    "category": "카페",
+    "address": "서울 강남구 역삼동 825",
+    "road_address": "서울 강남구 강남대로 390 (역삼동)",
+    "latitude": 37.497711,
+    "longitude": 127.028439,
+    "business_hours": "22:00에 영업 종료",
+    "visitor_review_count": 8266,
+    "blog_review_count": 1064,
+    "images": ["https://ldb-phinf.pstatic.net/a.png", "https://ldb-phinf.pstatic.net/b.jpg"],
+    "booking": False,
+    "order": True,
+    "delivery": False,
+    "naver_pay": True,
+    "place_url": "https://map.naver.com/p/entry/place/1086067689",
+}
+
+
+async def test_get_place_details_by_query_matches_name_near_point(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A query resolves to the exactly named place near `near`, then its summary."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+
+    response = await _call(
+        hass,
+        "get_place_details",
+        {"query": "스타벅스 강남R점", "near": {"latitude": 37.4979, "longitude": 127.0276}},
+    )
+
+    assert response == PLACE_DETAILS
+    assert aioclient_mock.mock_calls[0][1].query["coords"] == "37.4979,127.0276"
+
+
+async def test_get_place_details_query_defaults_to_home_and_first_result(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Without `near` the home location is used; with no exact name, Naver's first pick."""
+    hass.config.latitude, hass.config.longitude = 37.5665, 126.978
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+
+    response = await _call(hass, "get_place_details", {"query": "강남 스타벅스"})
+
+    assert response["place_id"] == "1086067689"
+    assert aioclient_mock.mock_calls[0][1].query["coords"] == "37.5665,126.978"
+
+
+async def test_get_place_details_by_place_id(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A place_id skips the autocomplete lookup."""
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+
+    response = await _call(hass, "get_place_details", {"place_id": "1086067689"})
+
+    assert response == PLACE_DETAILS
+    assert aioclient_mock.call_count == 1
+
+
+async def test_get_place_details_requires_exactly_one_of_query_or_place_id(
+    hass: HomeAssistant,
+) -> None:
+    """Neither (or both) of query/place_id is a validation error."""
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, "get_place_details", {})
+
+    assert err.value.translation_key == "place_input"
+
+
+async def test_get_place_details_no_match(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """An autocomplete answer without places raises no_results."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json={"ac": [], "place": []})
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _call(hass, "get_place_details", {"query": "없는장소"})
+
+    assert err.value.translation_key == "no_results"
+
+
+async def test_get_place_details_blocked_lookup_is_api_error(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A CAPTCHA-gated (or otherwise unreadable) lookup raises api_error."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=CAPTCHA_RESPONSE)
+
+    with pytest.raises(HomeAssistantError) as err:
+        await _call(hass, "get_place_details", {"query": "스타벅스"})
+
+    assert err.value.translation_key == "api_error"

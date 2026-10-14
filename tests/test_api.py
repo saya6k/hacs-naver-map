@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 import aiohttp
 import pytest
 from homeassistant.core import HomeAssistant
@@ -10,6 +12,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from custom_components.naver_map.api import (
     InvalidApiKey,
     NaverMapRouteApi,
+    NaverPlaceApi,
     NaverSearchApi,
     NcpMapsApi,
     RouteResult,
@@ -19,14 +22,23 @@ from custom_components.naver_map.const import (
     BIKE_ROUTE_URL,
     DRIVING_URL,
     GEOCODE_URL,
+    INSTANT_SEARCH_URL,
     LOCAL_SEARCH_URL,
+    PLACE_SUMMARY_URL,
     REVERSE_GEOCODE_URL,
     TRANSIT_ROUTE_URL,
     WALK_ROUTE_URL,
 )
 from custom_components.naver_map.helpers import ResolvedPoint
-from tests.const import ADDRESS_ITEM, REGION_RESPONSE, STARBUCKS_ITEM
-from tests.vendor.aiohttp_mock import AiohttpClientMocker
+from tests.const import (
+    ADDRESS_ITEM,
+    CAPTCHA_RESPONSE,
+    INSTANT_SEARCH_RESPONSE,
+    PLACE_SUMMARY_RESPONSE,
+    REGION_RESPONSE,
+    STARBUCKS_ITEM,
+)
+from tests.vendor.aiohttp_mock import AiohttpClientMocker, AiohttpClientMockResponse
 
 ORIGIN = ResolvedPoint(name="출발지", latitude=37.4979, longitude=127.0276)
 DESTINATION = ResolvedPoint(name="도착지", latitude=37.5006, longitude=127.0364)
@@ -622,3 +634,92 @@ async def test_transit_routes_keep_every_path_with_labels(
             labels=("minimum_walking",),
         ),
     ]
+
+
+def _place_api(hass: HomeAssistant) -> NaverPlaceApi:
+    return NaverPlaceApi(async_get_clientsession(hass))
+
+
+async def test_instant_search_sends_query_and_coords(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """Autocomplete gets the query and `lat,lng` coords and returns its place list."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=INSTANT_SEARCH_RESPONSE)
+
+    places = await _place_api(hass).async_instant_search("스타벅스 강남", 37.4979, 127.0276)
+
+    assert [place["id"] for place in places] == ["1086067689", "1234"]
+    _method, url, _data, headers = aioclient_mock.mock_calls[0]
+    assert url.query["query"] == "스타벅스 강남"
+    assert url.query["coords"] == "37.4979,127.0276"
+    assert headers["Referer"] == "https://map.naver.com/"
+
+
+async def test_instant_search_captcha_raises(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A CAPTCHA-gated answer has no place list and raises instead of looking empty."""
+    aioclient_mock.get(INSTANT_SEARCH_URL, json=CAPTCHA_RESPONSE)
+
+    with pytest.raises(KeyError):
+        await _place_api(hass).async_instant_search("스타벅스", 37.4979, 127.0276)
+
+
+async def test_place_summary_returns_detail(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The summary endpoint is called with the place id and yields `placeDetail`."""
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+
+    detail = await _place_api(hass).async_get_place_summary("1086067689")
+
+    assert detail["name"] == "스타벅스 강남R점"
+
+
+async def test_place_summary_retries_once_after_rate_limit(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A 429 (Naver throttles bursts) is retried once after a short pause."""
+    url = f"{PLACE_SUMMARY_URL}/1086067689"
+    statuses = iter([429, 200])
+
+    async def respond(method, request_url, data):
+        return AiohttpClientMockResponse(
+            method, request_url, status=next(statuses), json=PLACE_SUMMARY_RESPONSE
+        )
+
+    aioclient_mock.get(url, side_effect=respond)
+    with patch("custom_components.naver_map.api.asyncio.sleep", AsyncMock()) as sleep:
+        detail = await _place_api(hass).async_get_place_summary("1086067689")
+
+    assert detail["id"] == "1086067689"
+    assert aioclient_mock.call_count == 2
+    sleep.assert_awaited_once()
+
+
+async def test_place_summary_rate_limited_twice_raises(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A second 429 is not retried again."""
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", status=429)
+
+    with (
+        patch("custom_components.naver_map.api.asyncio.sleep", AsyncMock()),
+        pytest.raises(aiohttp.ClientResponseError),
+    ):
+        await _place_api(hass).async_get_place_summary("1086067689")
+
+    assert aioclient_mock.call_count == 2
+
+
+async def test_place_summary_is_cached(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A place looked up again within the cache window makes no new request."""
+    aioclient_mock.get(f"{PLACE_SUMMARY_URL}/1086067689", json=PLACE_SUMMARY_RESPONSE)
+    api = _place_api(hass)
+
+    await api.async_get_place_summary("1086067689")
+    await api.async_get_place_summary("1086067689")
+
+    assert aioclient_mock.call_count == 1

@@ -52,3 +52,63 @@ REGION_RESPONSE = {
         }
     ],
 }
+
+# map.naver.com instant-search (autocomplete), trimmed to the fields we read.
+INSTANT_SEARCH_RESPONSE = {
+    "ac": ["강남역 스타벅스"],
+    "place": [
+        {
+            "id": "1086067689",
+            "title": "스타벅스 강남R점",
+            "x": "127.028439",
+            "y": "37.497711",
+            "dist": 0.0769,
+            "ctg": "카페",
+            "roadAddress": "서울특별시 강남구 강남대로 390 (역삼동)",
+            "review": {"count": "8266"},
+        },
+        {
+            "id": "1234",
+            "title": "스타벅스 강남역점",
+            "x": "127.0270",
+            "y": "37.4990",
+            "dist": 0.2,
+            "ctg": "카페",
+        },
+    ],
+}
+
+# map.naver.com place/summary/{id}, trimmed.
+PLACE_SUMMARY_RESPONSE = {
+    "data": {
+        "placeDetail": {
+            "id": "1086067689",
+            "name": "스타벅스 강남R점",
+            "coordinate": {"longitude": 127.028439, "latitude": 37.497711},
+            "labels": {
+                "booking": False,
+                "delivery": False,
+                "nPay": True,
+                "talktalk": False,
+                "order": True,
+            },
+            "category": {"category": "카페"},
+            "address": {
+                "address": "서울 강남구 역삼동 825",
+                "roadAddress": "서울 강남구 강남대로 390 (역삼동)",
+            },
+            "businessHours": {"description": "22:00에 영업 종료"},
+            "visitorReviews": {"score": None, "displayText": "방문자 리뷰 8,266"},
+            "blogReviews": {"total": 1064},
+            "images": {
+                "images": [
+                    {"origin": "https://ldb-phinf.pstatic.net/a.png"},
+                    {"origin": "https://ldb-phinf.pstatic.net/b.jpg"},
+                ]
+            },
+        }
+    }
+}
+
+# What instant-search returns when Naver gates it behind a CAPTCHA.
+CAPTCHA_RESPONSE = {"result": {"place": None, "ncaptcha": {"confirmRules": "CE_EMPTY_TOKEN"}}}

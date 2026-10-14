@@ -35,6 +35,12 @@ DIRECTIONS_LINK_BASE: Final = "https://map.naver.com/p/directions"
 TRANSIT_ROUTE_URL: Final = "https://map.naver.com/p/api/directions/pubtrans"
 WALK_ROUTE_URL: Final = "https://map.naver.com/p/api/directions/walk"
 BIKE_ROUTE_URL: Final = "https://map.naver.com/p/api/directions/bike"
+# Naver Map internal place API (same headers): autocomplete yields place ids,
+# the summary yields business hours, review counts, photos, and service flags.
+# The full place search (allSearch) is CAPTCHA-gated and deliberately unused.
+INSTANT_SEARCH_URL: Final = "https://map.naver.com/p/api/search/instant-search"
+PLACE_SUMMARY_URL: Final = "https://map.naver.com/p/api/place/summary"
+PLACE_LINK_BASE: Final = "https://map.naver.com/p/entry/place"
 ROUTE_API_HEADERS: Final = {
     "Referer": "https://map.naver.com/",
     "User-Agent": (

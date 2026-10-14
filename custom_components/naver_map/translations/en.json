@@ -60,6 +60,24 @@
         }
       }
     },
+    "get_place_details": {
+      "name": "Get place details",
+      "description": "Looks up a place's Naver Place summary: the business-hours status, visitor and blog review counts, photos, booking/order/delivery/Naver Pay availability, and a link to the place in Naver Map. Uses Naver Map's undocumented web API (best effort).",
+      "fields": {
+        "query": {
+          "name": "Place name",
+          "description": "Name of the place to look up, e.g. a search_place result's place_name. Use this or a place ID."
+        },
+        "near": {
+          "name": "Near",
+          "description": "An entity or a latitude/longitude value near the place, to pick the right branch. Defaults to the home location."
+        },
+        "place_id": {
+          "name": "Place ID",
+          "description": "Naver Place ID, e.g. from a previous response. Use this or a place name."
+        }
+      }
+    },
     "get_directions": {
       "name": "Get directions",
       "description": "Builds a Naver Map route link between an origin and destination (with optional waypoints) and returns the per-leg points plus a best-effort travel time and distance.",
@@ -151,6 +169,9 @@
     },
     "nearby_input": {
       "message": "Provide exactly one of category or query for the nearby search."
+    },
+    "place_input": {
+      "message": "Provide exactly one of a place name (query) or a place ID."
     },
     "transit_no_waypoints": {
       "message": "Public transit routes do not support waypoints. Remove the waypoints or choose another mode."

@@ -12,10 +12,16 @@ from collections.abc import Sequence
 from typing import Any
 from urllib.parse import quote
 
-from .const import DIRECTIONS_LINK_BASE, DIRECTIONS_LINK_MODES, MAP_SEARCH_LINK_BASE
+from .const import (
+    DIRECTIONS_LINK_BASE,
+    DIRECTIONS_LINK_MODES,
+    MAP_SEARCH_LINK_BASE,
+    PLACE_LINK_BASE,
+)
 from .helpers import ResolvedPoint
 
 _TAG = re.compile(r"<[^>]+>")
+_NON_DIGIT = re.compile(r"\D")
 
 # map.naver.com packs each coordinate as base62(round(deg * 1e7) + 200 * 1e7).
 _BASE62 = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -51,6 +57,38 @@ def place_result(item: dict[str, Any]) -> dict[str, Any]:
     if item.get("link"):
         result["place_url"] = item["link"]
     return result
+
+
+def _count(text: str | None) -> int | None:
+    """Read a count out of display text such as "방문자 리뷰 8,266"."""
+    digits = _NON_DIGIT.sub("", text or "")
+    return int(digits) if digits else None
+
+
+def place_details_result(detail: dict[str, Any]) -> dict[str, Any]:
+    """Map a map.naver.com place summary (`placeDetail`) to the place details schema."""
+    address = detail.get("address") or {}
+    labels = detail.get("labels") or {}
+    images = (detail.get("images") or {}).get("images") or []
+    return {
+        "place_id": detail["id"],
+        "place_name": detail["name"],
+        "category": (detail.get("category") or {}).get("category"),
+        "address": address.get("address"),
+        "road_address": address.get("roadAddress"),
+        "latitude": float(detail["coordinate"]["latitude"]),
+        "longitude": float(detail["coordinate"]["longitude"]),
+        # A one-line status such as "22:00에 영업 종료"; full hours aren't in the summary.
+        "business_hours": (detail.get("businessHours") or {}).get("description"),
+        "visitor_review_count": _count((detail.get("visitorReviews") or {}).get("displayText")),
+        "blog_review_count": (detail.get("blogReviews") or {}).get("total"),
+        "images": [image["origin"] for image in images if image.get("origin")],
+        "booking": bool(labels.get("booking")),
+        "order": bool(labels.get("order")),
+        "delivery": bool(labels.get("delivery")),
+        "naver_pay": bool(labels.get("nPay")),
+        "place_url": f"{PLACE_LINK_BASE}/{detail['id']}",
+    }
 
 
 def address_result(item: dict[str, Any]) -> dict[str, Any]:

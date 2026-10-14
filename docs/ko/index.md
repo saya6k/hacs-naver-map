@@ -14,6 +14,7 @@
 - **`search_place`** — 키워드 장소 검색. 상위 5건의 좌표·주소·지도 링크를 반환합니다.
 - **`search_nearby`** — 중심 지점(엔티티 또는 좌표) 주변을 카테고리 또는 키워드로 검색. 거리순 정렬, 각 결과에 `distance` 포함.
 - **`geocode_address`** — 주소를 WGS84 좌표로 변환. 가장 일치하는 결과의 지번·도로명 주소, 우편번호, 지도 링크를 반환합니다.
+- **`get_place_details`** — 네이버 플레이스 요약: 영업 상태, 리뷰 수, 사진, 예약·주문 여부, 장소 링크.
 - **`get_directions`** — 네이버 지도 경로 링크 + 구간별 지점 + 자동차·대중교통·도보·자전거 소요시간/도착 예정 시각. 지점은 엔티티(person / device_tracker / zone / …) 또는 좌표.
 - **경로 패널** — 사이드바 **Naver Map** 패널에서 장소를 검색하고, Home Assistant 기본 지도 위에 경로선을 그리며 소요시간·거리·(대중교통) 환승·요금을 보여줍니다.
 - **Assist / AI 도구 지원** — 같은 기능을 AI 대화 에이전트용 LLM 도구 API로도 노출하며, 결과 카드를 시각적으로 표시합니다.
@@ -119,6 +120,23 @@ response_variable: geo
 # geo: latitude / longitude / address(지번) / road_address / zone_no / map_url
 ```
 
+### `naver_map.get_place_details`
+
+장소 이름(올바른 지점을 고르기 위한 기준 지점과 함께) 또는 장소 ID로 네이버 플레이스 요약을 조회합니다. 네이버 지도의 비공개 웹 API를 사용하는 best-effort 기능입니다.
+
+```yaml
+action: naver_map.get_place_details
+data:
+  query: 스타벅스 강남R점            # … 또는 place_id: "1086067689"
+  near:                             # 선택, 기본값은 집
+    latitude: 37.4979
+    longitude: 127.0276
+response_variable: place
+# place: place_id / place_name / category / address / road_address / latitude / longitude /
+#        business_hours(영업 상태) / visitor_review_count / blog_review_count / images[] /
+#        booking / order / delivery / naver_pay / place_url
+```
+
 ### `naver_map.get_directions`
 
 ```yaml
@@ -154,6 +172,7 @@ MCP 클라이언트는 대화 에이전트 설정과 무관하게 `/api/mcp/nave
 ## 참고 및 제한 사항
 
 - **자동차 소요시간**은 NCP Directions 5(공식)에서 가져옵니다. **대중교통·도보·자전거** 소요시간은 네이버 지도의 비공개 내부 경로 API에서 가져오며, 예고 없이 바뀌거나 차단될 수 있습니다. 실패 시 `duration` / `distance` / `arrival_time`은 `null`이 되지만 경로 링크(`route_url`)는 항상 반환됩니다.
+- **장소 상세 정보**는 네이버 지도의 비공개 웹 API에서 가져옵니다(전체 장소 검색은 캡차로 보호되어 사용하지 않음). 네이버가 연속 요청을 제한하므로 요약은 1시간 캐시하며, 메뉴·전체 영업시간·전화번호·리뷰 본문은 제공되지 않습니다.
 - **`mode: transit`**은 경유지를 지원하지 않으며 응답에 `transfers`·`fare`가 추가됩니다.
 - **경유지가 있는 `mode: bicycle`**은 링크만 제공합니다(소요시간 `null`).
 - **경로선과 세부 단계**는 소요시간과 같은 조회에서 가져오므로 같은 제약을 따르며, 각각 따로 `null`이 될 수 있습니다.

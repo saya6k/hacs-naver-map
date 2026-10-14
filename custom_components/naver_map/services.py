@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import timedelta
@@ -26,6 +27,7 @@ from homeassistant.util.location import distance as geo_distance
 from .api import (
     NaverApiError,
     NaverMapRouteApi,
+    NaverPlaceApi,
     NaverSearchApi,
     NcpMapsApi,
     RouteResult,
@@ -43,13 +45,14 @@ from .const import (
     MODE_TRANSIT,
     MODE_WALK,
 )
-from .formatters import address_result, place_result, route_url
+from .formatters import address_result, place_details_result, place_result, route_url
 from .helpers import ResolvedPoint, resolve_point, resolve_waypoint
 
 SERVICE_SEARCH_PLACE = "search_place"
 SERVICE_SEARCH_NEARBY = "search_nearby"
 SERVICE_GEOCODE_ADDRESS = "geocode_address"
 SERVICE_GET_DIRECTIONS = "get_directions"
+SERVICE_GET_PLACE_DETAILS = "get_place_details"
 
 ATTR_QUERY = "query"
 ATTR_CENTER = "center"
@@ -59,13 +62,21 @@ ATTR_ORIGIN = "origin"
 ATTR_DESTINATION = "destination"
 ATTR_WAYPOINTS = "waypoints"
 ATTR_MODE = "mode"
+ATTR_PLACE_ID = "place_id"
+ATTR_NEAR = "near"
 ATTR_INCLUDE_GEOMETRY = "include_geometry"
 ATTR_INCLUDE_STEPS = "include_steps"
 ATTR_INCLUDE_ALTERNATIVES = "include_alternatives"
 
 NEARBY_CENTER_ROLE = "중심 지점"
+NEAR_ROLE = "기준 지점"
+
+_LOGGER = logging.getLogger(__name__)
 
 _API_ERRORS = (NaverApiError, aiohttp.ClientError, TimeoutError)
+# The place endpoints are undocumented: an unexpected (e.g. CAPTCHA-gated) answer
+# shows up as a missing key or bad value rather than an HTTP error.
+_PLACE_ERRORS = (*_API_ERRORS, KeyError, IndexError, TypeError, ValueError)
 
 SEARCH_PLACE_SCHEMA = vol.Schema({vol.Required(ATTR_QUERY): cv.string})
 GEOCODE_ADDRESS_SCHEMA = vol.Schema({vol.Required(ATTR_QUERY): cv.string})
@@ -81,6 +92,14 @@ SEARCH_NEARBY_SCHEMA = vol.Schema(
         vol.Optional(ATTR_RADIUS, default=DEFAULT_NEARBY_RADIUS): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=MAX_NEARBY_RADIUS)
         ),
+    }
+)
+
+GET_PLACE_DETAILS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(ATTR_PLACE_ID): cv.string,
+        vol.Optional(ATTR_QUERY): cv.string,
+        vol.Optional(ATTR_NEAR): POINT_INPUT,
     }
 )
 
@@ -104,6 +123,7 @@ class NaverClients:
     search: NaverSearchApi
     maps: NcpMapsApi
     route: NaverMapRouteApi
+    place: NaverPlaceApi
 
 
 def _api_error() -> HomeAssistantError:
@@ -177,6 +197,45 @@ async def async_geocode_address(clients: NaverClients, query: str) -> dict[str, 
     if not items:
         raise _no_results(query)
     return address_result(items[0])
+
+
+def _pick_place(places: list[dict[str, Any]], query: str) -> dict[str, Any]:
+    """The nearest exactly named place, else Naver's first suggestion."""
+    wanted = query.replace(" ", "")
+    exact = [place for place in places if place.get("title", "").replace(" ", "") == wanted]
+    if exact:
+        return min(exact, key=lambda place: float(place.get("dist", float("inf"))))
+    return places[0]
+
+
+async def async_get_place_details(
+    hass: HomeAssistant, clients: NaverClients, data: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Look up a place's Naver Place summary by place_id, or by name near a point.
+
+    ``data`` holds exactly one of ``ATTR_PLACE_ID``/``ATTR_QUERY``; a query is
+    autocompleted around ``ATTR_NEAR`` (an entity or location), defaulting to
+    the home location.
+    """
+    place_id = data.get(ATTR_PLACE_ID)
+    query = data.get(ATTR_QUERY)
+    if bool(place_id) == bool(query):
+        raise ServiceValidationError(translation_domain=DOMAIN, translation_key="place_input")
+    if data.get(ATTR_NEAR):
+        near = resolve_point(hass, role=NEAR_ROLE, value=data[ATTR_NEAR])
+        latitude, longitude = near.latitude, near.longitude
+    else:
+        latitude, longitude = hass.config.latitude, hass.config.longitude
+    try:
+        if query:
+            places = await clients.place.async_instant_search(query, latitude, longitude)
+            if not places:
+                raise _no_results(query)
+            place_id = _pick_place(places, query)["id"]
+        return place_details_result(await clients.place.async_get_place_summary(place_id))
+    except _PLACE_ERRORS as err:
+        _LOGGER.warning("Naver place lookup failed (the endpoint may be blocked): %r", err)
+        raise _api_error() from err
 
 
 async def async_get_directions(
@@ -308,6 +367,12 @@ async def _async_handle_geocode_address(
     return await async_geocode_address(clients, call.data[ATTR_QUERY])
 
 
+async def _async_handle_get_place_details(
+    hass: HomeAssistant, clients: NaverClients, call: ServiceCall
+) -> ServiceResponse:
+    return await async_get_place_details(hass, clients, call.data)
+
+
 async def _async_handle_get_directions(
     hass: HomeAssistant, clients: NaverClients, call: ServiceCall
 ) -> ServiceResponse:
@@ -334,6 +399,11 @@ def async_setup_services(hass: HomeAssistant, clients: NaverClients) -> None:
             partial(_async_handle_get_directions, hass, clients),
             GET_DIRECTIONS_SCHEMA,
         ),
+        (
+            SERVICE_GET_PLACE_DETAILS,
+            partial(_async_handle_get_place_details, hass, clients),
+            GET_PLACE_DETAILS_SCHEMA,
+        ),
     ):
         hass.services.async_register(
             DOMAIN, service, handler, schema=schema, supports_response=SupportsResponse.ONLY
@@ -347,3 +417,4 @@ def async_unload_services(hass: HomeAssistant) -> None:
     hass.services.async_remove(DOMAIN, SERVICE_SEARCH_NEARBY)
     hass.services.async_remove(DOMAIN, SERVICE_GEOCODE_ADDRESS)
     hass.services.async_remove(DOMAIN, SERVICE_GET_DIRECTIONS)
+    hass.services.async_remove(DOMAIN, SERVICE_GET_PLACE_DETAILS)

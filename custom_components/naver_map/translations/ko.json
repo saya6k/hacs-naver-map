@@ -60,6 +60,24 @@
         }
       }
     },
+    "get_place_details": {
+      "name": "장소 상세 정보",
+      "description": "네이버 플레이스 요약을 조회합니다: 영업 상태, 방문자·블로그 리뷰 수, 사진, 예약·주문·배달·네이버페이 여부, 네이버 지도 장소 링크. 네이버 지도의 비공개 웹 API를 사용합니다(best-effort).",
+      "fields": {
+        "query": {
+          "name": "장소 이름",
+          "description": "조회할 장소 이름(예: search_place 결과의 place_name). 장소 ID 대신 사용합니다."
+        },
+        "near": {
+          "name": "기준 지점",
+          "description": "올바른 지점을 고르기 위한 장소 근처의 엔티티 또는 위도/경도. 기본값은 집 위치입니다."
+        },
+        "place_id": {
+          "name": "장소 ID",
+          "description": "네이버 플레이스 ID(예: 이전 응답의 place_id). 장소 이름 대신 사용합니다."
+        }
+      }
+    },
     "get_directions": {
       "name": "길찾기",
       "description": "출발지와 도착지(선택적 경유지 포함) 사이의 네이버 지도 경로 링크와 구간별 지점, best-effort 소요시간·거리를 반환합니다.",
@@ -151,6 +169,9 @@
     },
     "nearby_input": {
       "message": "주변 검색은 카테고리 또는 검색어 중 정확히 하나만 지정해야 합니다."
+    },
+    "place_input": {
+      "message": "장소 이름(query)과 장소 ID 중 정확히 하나를 지정하세요."
     },
     "transit_no_waypoints": {
       "message": "대중교통 경로는 경유지를 지원하지 않습니다. 경유지를 제거하거나 다른 모드를 선택하세요."

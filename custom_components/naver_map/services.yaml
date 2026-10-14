@@ -59,6 +59,22 @@ geocode_address:
       selector:
         text:
 
+get_place_details:
+  fields:
+    query:
+      example: "스타벅스 강남R점"
+      selector:
+        text:
+    near:
+      example: "{latitude: 37.4979, longitude: 127.0276}"
+      selector:
+        location:
+          radius: false
+    place_id:
+      example: "1086067689"
+      selector:
+        text:
+
 get_directions:
   fields:
     origin:

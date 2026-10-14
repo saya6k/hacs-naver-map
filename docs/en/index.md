@@ -13,6 +13,7 @@ Naver Map for Home Assistant — **place search**, **nearby search**, **geocodin
 - **`search_place`** — keyword place search, returns the top 5 results with coordinates, addresses, and map links.
 - **`search_nearby`** — search around a center point (entity or coordinates) by category or keyword, ordered by distance, with a `distance` field on each result.
 - **`geocode_address`** — convert an address into WGS84 coordinates, returning the best match with its jibun/road address, postal code, and a map link.
+- **`get_place_details`** — a place's Naver Place summary: business-hours status, review counts, photos, booking/order availability, and a link to the place.
 - **`get_directions`** — Naver Map route link + per-leg points + travel time / arrival time for car, transit, walk, and bicycle. Points are entities (person / device_tracker / zone / …) or coordinates.
 - **Route panel** — a **Naver Map** sidebar panel that searches places, draws the route line on Home Assistant's built-in map, and shows travel time, distance, and (transit) transfers/fare.
 - **Assist / AI tool support** — the same actions are exposed as an LLM tool API for AI-backed conversation agents, with visual result cards.
@@ -118,6 +119,23 @@ response_variable: geo
 # geo: latitude / longitude / address(jibun) / road_address / zone_no / map_url
 ```
 
+### `naver_map.get_place_details`
+
+Look up a place's Naver Place summary by name (near a point, to pick the right branch) or by place ID. Best effort: it uses Naver Map's undocumented web API.
+
+```yaml
+action: naver_map.get_place_details
+data:
+  query: 스타벅스 강남R점            # … or place_id: "1086067689"
+  near:                             # optional; defaults to home
+    latitude: 37.4979
+    longitude: 127.0276
+response_variable: place
+# place: place_id / place_name / category / address / road_address / latitude / longitude /
+#        business_hours (status line) / visitor_review_count / blog_review_count / images[] /
+#        booking / order / delivery / naver_pay / place_url
+```
+
 ### `naver_map.get_directions`
 
 ```yaml
@@ -153,6 +171,7 @@ MCP clients can also reach the API directly at `/api/mcp/naver_map` (requires an
 ## Notes and limitations
 
 - **Car travel time** comes from NCP Directions 5 (official). **Transit, walk, and bicycle** travel times come from Naver Map's undocumented internal route API, which may change or be blocked. On any failure `duration` / `distance` / `arrival_time` degrade to `null` while the route link (`route_url`) is always returned.
+- **Place details** come from Naver Map's undocumented web API (its full place search is CAPTCHA-protected and not used). Naver throttles bursts, so summaries are cached for an hour; the menu, full opening hours, phone number, and review text are not available.
 - **`mode: transit`** does not support waypoints and adds `transfers` and `fare` to the response.
 - **`mode: bicycle` with waypoints** is link-only (`null` travel time).
 - **Route geometry and steps** come from the same lookups as the travel time, so they share its limits and degrade to `null` independently.
