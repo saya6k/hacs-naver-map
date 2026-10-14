@@ -34,14 +34,16 @@ Copy `custom_components/naver_map/` into your HA config's `custom_components/` f
 
 ## Configuration
 
-The config flow takes two credential pairs. Only one entry is supported.
+The config flow asks for the NAVER Cloud Platform keys (required) and, optionally, Naver Developers search keys. Only one entry is supported; change the keys later with **Reconfigure**.
 
 | Credential | Where to get it | Used for |
 |---|---|---|
-| **Client ID / Client Secret** | [Naver Developers](https://developers.naver.com/apps/) → Application → register with the **검색 (Search)** API | `search_place`, `search_nearby` |
-| **API Key ID / API Key** | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, with **Geocoding**, **Reverse Geocoding**, and **Directions 5** enabled | `geocode_address`, `search_nearby` (region lookup), `get_directions` (car) |
+| **API Key ID / API Key** (required) | [NAVER Cloud Platform](https://console.ncloud.com/maps/application) → Maps → Application, with **Geocoding**, **Reverse Geocoding**, and **Directions 5** enabled | `geocode_address`, `get_directions` (car), region lookup for the `search_nearby` fallback |
+| **Client ID / Client Secret** (optional) | [Naver Developers](https://developers.naver.com/apps/) → Application → register with the **검색 (Search)** API | Official keyword search for `search_place`, and the `search_nearby` fallback |
 
-NCP Maps is a paid service with a monthly free quota; check the current pricing in the NCP console.
+**Without the search keys**, keyword and nearby search rely only on Naver Map's unofficial web autocomplete: if Naver blocks or changes it, both stop, with no official search API to fall back on, and keyword results are ranked around your home rather than nationwide. Everything else works the same. The setup form says this too.
+
+NCP Maps is a paid service with a monthly free quota (e.g. Directions 5: 60,000 and Geocoding: 3,000,000 calls a month at the time of writing); check the current pricing in the NCP console. If car directions or geocoding fail, check the [NCP service status](https://www.ncloud.com/serviceStatus/).
 
 ## Route panel
 

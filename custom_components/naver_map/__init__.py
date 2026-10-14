@@ -19,8 +19,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Naver Map from a config entry."""
     session = async_get_clientsession(hass)
     clients = NaverClients(
-        search=NaverSearchApi(
-            session, entry.data[CONF_CLIENT_ID], entry.data[CONF_CLIENT_SECRET]
+        # The Naver Developers search keys are optional (see config_flow).
+        search=(
+            NaverSearchApi(session, entry.data[CONF_CLIENT_ID], entry.data[CONF_CLIENT_SECRET])
+            if entry.data.get(CONF_CLIENT_ID) and entry.data.get(CONF_CLIENT_SECRET)
+            else None
         ),
         maps=NcpMapsApi(session, entry.data[CONF_NCP_KEY_ID], entry.data[CONF_NCP_KEY]),
         route=NaverMapRouteApi(session),

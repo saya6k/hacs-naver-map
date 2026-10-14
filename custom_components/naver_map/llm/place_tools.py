@@ -60,7 +60,7 @@ class SearchPlaceTool(BaseNaverTool):
         tool_input: llm.ToolInput,
         llm_context: llm.LLMContext,
     ) -> llm.ToolResult:
-        results = await async_search_place(self.clients, tool_input.tool_args["query"])
+        results = await async_search_place(hass, self.clients, tool_input.tool_args["query"])
         return self.envelope(
             places=results,
             results=grid_results(_place_card_items(results), accent=_PLACE_ACCENT),
