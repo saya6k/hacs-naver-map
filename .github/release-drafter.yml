@@ -6,6 +6,13 @@ tag-template: "v$RESOLVED_VERSION"
 # shown in the release body; the titled entries below are the display
 # categories, both keyed off `when.labels` now instead of a bare `labels` list.
 categories:
+  # A `!` in a Conventional-Commit title (e.g. `feat!:`) adds the `breaking`
+  # label. Below 1.0 a breaking change bumps the minor version like a feature;
+  # switch this entry to "major" once the integration reaches 1.0.
+  - type: "version-resolver"
+    semver-increment: "minor"
+    when:
+      labels: ["breaking"]
   - type: "version-resolver"
     semver-increment: "minor"
     when:
@@ -16,6 +23,10 @@ categories:
       labels: ["bug", "fix", "chore", "dependencies", "ci"]
   - type: "version-resolver"
     semver-increment: "patch"
+  # First match wins, so a breaking PR is listed here only.
+  - title: "⚠️ Breaking changes"
+    when:
+      labels: ["breaking"]
   - title: "New Features"
     when:
       labels: ["enhancement", "feature"]
@@ -26,6 +37,9 @@ categories:
     when:
       labels: ["chore", "dependencies", "ci"]
 autolabeler:
+  - label: breaking
+    title:
+      - '/^[a-z]+(\(.+\))?!:/i'
   - label: enhancement
     title:
       - '/^feat(\(.+\))?!?:/i'
