@@ -1,6 +1,9 @@
 {
   "domain": "naver_map",
   "name": "Naver Map",
+  "categories": [
+    "vehicles_transport"
+  ],
   "codeowners": [
     "@saya6k"
   ],
