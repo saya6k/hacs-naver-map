@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from aiohttp.resolver import AsyncResolver
+from homeassistant import core as ha
 from homeassistant import loader
 from homeassistant.components.http.server import HomeAssistantHTTP
 from homeassistant.core import HomeAssistant
@@ -25,6 +26,17 @@ async def mock_zeroconf_resolver() -> AsyncGenerator[None]:
         return_value=AsyncResolver(),
     ):
         yield
+
+
+@pytest.fixture(autouse=True)
+def reset_hass_threading_local_object() -> Generator[None]:
+    """Reset the _Hass threading.local object for every test (as HA core's conftest does).
+
+    Otherwise it keeps the last test's hass alive until interpreter shutdown,
+    where tearing down its config entries' cached orjson Fragments segfaults.
+    """
+    yield
+    ha._hass.__dict__.clear()
 
 
 @pytest.fixture(autouse=True)
