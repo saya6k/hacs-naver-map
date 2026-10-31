@@ -12,7 +12,7 @@
 
 Naver Map for Home Assistant — **place search**, **nearby search**, **geocoding**, and **directions** (Naver Map link plus travel time) built on NAVER Cloud Platform Maps and Naver Map's web/internal APIs. For Korean users.
 
-> **Map-tile replacement is not supported.** The route panel draws on Home Assistant's built-in map (OpenStreetMap tiles); the integration does not replace tiles or patch the HA frontend map.
+> **Map tiles:** the route panel draws on Home Assistant's built-in map (OpenStreetMap tiles). Its layers button lays Naver Map tiles over that map in the panel only; other Home Assistant maps are not changed. See [Route panel](#route-panel).
 
 ## Features
 
@@ -71,6 +71,8 @@ The panel opens on the map alone: tap a tab to open it, and tap the open tab aga
 5. **Car** offers the best, fastest, and toll-free routes (one Directions 5 call), each with its toll and fuel cost; the selected one is drawn and lists its turn-by-turn steps. **Route details** for walk and bicycle list the turn-by-turn steps.
 
 The map opens at your current location (a blue dot) when the browser shares it — this needs Home Assistant over HTTPS and location permission; the Android companion app's web view does not share it. Otherwise it opens at your person's location, else home. The location button re-centers the map, and the category shortcuts search around the same point.
+
+The layers button above it lays **Naver Map tiles** over the map (Naver's dark tiles in dark mode); tap it again to go back to OpenStreetMap. The choice is remembered per browser and is off by default. The tiles come from the CDN Naver Map's own web map uses (unofficial, no key), so they may stop loading if Naver changes or blocks it; wherever they fail, OpenStreetMap shows through. The button is hidden on devices without WebGL2.
 
 On phones and tablets (including the Home Assistant companion apps) the Naver Map links open the Naver Map app; on Android a missing app opens the Play Store. On desktop they open map.naver.com.
 
@@ -215,7 +217,7 @@ MCP clients can also reach the API directly at `/api/mcp/naver_map` (requires an
 - **`mode: bicycle` with waypoints** is link-only (`null` travel time).
 - **Route geometry and steps** come from the same lookups as the travel time, so they share its limits and degrade to `null` independently.
 - **Route panel**: every route change in car mode calls Directions 5, a paid NCP API; marker drags are debounced, and nothing is looked up automatically. The panel loads Home Assistant's map component through frontend internals when its URL is opened directly, so a frontend update can break it; it then shows a notice instead of the map.
-- **No map-tile replacement** — see the note near the top.
+- **Naver Map tiles** in the panel are unofficial and reach into Home Assistant's map component; if a frontend update changes it, the layers button disappears and the panel keeps OpenStreetMap. Other Home Assistant maps never change.
 
 ## Development
 

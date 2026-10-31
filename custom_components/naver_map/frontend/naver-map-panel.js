@@ -32,6 +32,7 @@ const ICONS = {
   entity: "mdi:account-box-outline",
   pick: "mdi:map-marker-radius",
   locate: "mdi:crosshairs-gps",
+  tiles: "mdi:layers",
   search: "mdi:magnify",
   open: "mdi:open-in-new",
   hours: "mdi:clock-outline",
@@ -79,6 +80,17 @@ const PERSIST_DELAY = 400; // ms; batches rapid edits into one user-data write
 const REALTIME_MAX_AGE = 60000; // ms; arrivals are re-read on selection after this
 const LOCATE_TIMEOUT = 8000; // ms to wait for the device position
 const START_ZOOM = 15;
+// Naver Map tiles laid over the base map (OpenStreetMap), from the CDN the
+// Naver Maps JS SDK reads: undocumented and keyless, so it may change or block
+// without notice. Its TileJSON names the current tile version.
+const NAVER_TILES = {
+  storageKey: "naver_map_tiles", // localStorage, per browser: "1" while on
+  id: "naver-tiles",
+  tileJson: (dark) =>
+    `https://map.pstatic.net/nrb/styles/${dark ? "dbasic" : "basic"}` +
+    `${window.devicePixelRatio > 1 ? "@2x" : ""}.json?fmt=png`,
+  attribution: '&copy; <a href="https://map.naver.com/">NAVER Corp.</a>',
+};
 // Bottom-sheet snaps on phone widths. "min" fits the open tab's controls
 // exactly (measured), "peek" shows results with the map still in view, and
 // "full" leaves a strip of map so the handle stays reachable.
@@ -179,6 +191,7 @@ const STRINGS = {
     home: "Home",
     currentLocation: "Current location",
     locate: "Go to my location",
+    naverTiles: "Naver Map tiles",
     noNearby: "Nothing found nearby",
     loadingDetails: "Loading place details…",
     detailsUnavailable: "Place details unavailable",
@@ -279,6 +292,7 @@ const STRINGS = {
     home: "집",
     currentLocation: "현재 위치",
     locate: "현 위치로",
+    naverTiles: "네이버 지도 타일",
     noNearby: "주변에서 찾지 못했습니다",
     loadingDetails: "장소 정보를 불러오는 중…",
     detailsUnavailable: "장소 정보를 불러오지 못했습니다",
@@ -427,6 +441,12 @@ class NaverMapPanel extends HTMLElement {
     this._here = null; // device position [lat, lng], when the browser shares it
     this._sheet = "min";
     this._open = false; // the panel starts folded: map only, no tab content
+    this._naverTiles = false;
+    try {
+      this._naverTiles = localStorage.getItem(NAVER_TILES.storageKey) === "1";
+    } catch {
+      // Storage blocked: the tiles start off.
+    }
   }
 
   set hass(hass) {
@@ -653,7 +673,17 @@ class NaverMapPanel extends HTMLElement {
     map.addEventListener("editable-location-clicked", (ev) => {
       if (this._tab === "place") this._selectPlace(Number(ev.detail.id.replace("place-", "")));
     });
+    // Fired each time ha-map has (re)built its engine, e.g. after a WebGL loss.
+    map.addEventListener("editing-available-changed", () => this._attachNaverTiles());
     container.appendChild(map);
+    const tiles = document.createElement("button");
+    tiles.className = "tiles";
+    tiles.title = this._t.naverTiles;
+    tiles.innerHTML = icon("tiles");
+    tiles.hidden = true; // until there is a MapLibre map to lay them on
+    tiles.addEventListener("click", () => this._toggleNaverTiles());
+    container.appendChild(tiles);
+    this._tilesButton = tiles;
     const locate = document.createElement("button");
     locate.className = "locate";
     locate.title = this._t.locate;
@@ -664,6 +694,82 @@ class NaverMapPanel extends HTMLElement {
     this._syncMapEntities();
     this._drawMap();
     this._locate({ initial: true });
+  }
+
+  // The MapLibre map inside <ha-map>, or null on its Leaflet fallback (no
+  // WebGL2). ha-map has no public way to add a layer, so this reads its
+  // internals; if the frontend changes them the tiles just never appear.
+  _glMap() {
+    const gl = this._map?._engine?._map;
+    return typeof gl?.getStyle === "function" && typeof gl?.addLayer === "function" ? gl : null;
+  }
+
+  _attachNaverTiles() {
+    const gl = this._glMap();
+    this._tilesButton.hidden = !gl;
+    if (!gl || gl === this._tilesMap) return;
+    this._tilesMap = gl;
+    // A style change (theme switch) drops the layer; put it back once it settles.
+    const sync = () => this._syncNaverTiles();
+    gl.on("styledata", sync);
+    gl.on("idle", sync);
+    sync();
+  }
+
+  _toggleNaverTiles() {
+    this._naverTiles = !this._naverTiles;
+    try {
+      if (this._naverTiles) localStorage.setItem(NAVER_TILES.storageKey, "1");
+      else localStorage.removeItem(NAVER_TILES.storageKey);
+    } catch {
+      // Not remembered; still applies to this map.
+    }
+    this._syncNaverTiles();
+  }
+
+  // One raster layer over the base map and under what the panel draws (zones,
+  // route, markers: GeoJSON sources). Where Naver tiles fail to load the base
+  // map shows through, and turning them off only removes the layer.
+  _syncNaverTiles() {
+    this._tilesButton.classList.toggle("on", this._naverTiles);
+    this._tilesButton.setAttribute("aria-pressed", String(this._naverTiles));
+    const gl = this._glMap();
+    // Its own add/move calls fire styledata again.
+    if (!gl || this._syncingTiles) return;
+    this._syncingTiles = true;
+    const { id } = NAVER_TILES;
+    const dark = Boolean(this._hass?.themes?.darkMode);
+    try {
+      if (gl.getSource(id) && (!this._naverTiles || this._naverTilesDark !== dark)) {
+        if (gl.getLayer(id)) gl.removeLayer(id);
+        gl.removeSource(id);
+      }
+      if (!this._naverTiles) return;
+      if (!gl.getSource(id)) {
+        gl.addSource(id, {
+          type: "raster",
+          url: NAVER_TILES.tileJson(dark),
+          tileSize: 256,
+          attribution: NAVER_TILES.attribution,
+        });
+        this._naverTilesDark = dark;
+      }
+      if (!gl.getLayer(id)) gl.addLayer({ id, type: "raster", source: id });
+      const layers = gl.getStyle().layers;
+      const drawn = (layer) => gl.getSource(layer.source)?.type === "geojson";
+      const at = layers.findIndex((layer) => layer.id === id);
+      const misplaced = layers.some(
+        (layer, i) => layer.id !== id && (i < at ? drawn(layer) : !drawn(layer))
+      );
+      if (misplaced) {
+        gl.moveLayer(id);
+        layers.filter(drawn).forEach((layer) => gl.moveLayer(layer.id));
+      }
+    } catch {
+      // The style is still loading; the next styledata/idle tries again.
+    } finally {
+      this._syncingTiles = false;
+    }
   }
 
   // The device position, or null when the browser can't or won't share it
@@ -2123,9 +2229,12 @@ const STYLE = `
   .layout.closed .sheet { display: none; }
   .map { grid-area: map; position: relative; min-height: 0; }
   .map ha-map { display: block; height: 100%; }
-  .locate { position: absolute; right: 12px; bottom: 28px; z-index: 1; width: 44px; height: 44px;
+  .locate, .tiles { position: absolute; right: 12px; bottom: 28px; z-index: 1; width: 44px; height: 44px;
     border-radius: 50%; border: none; display: flex; align-items: center; justify-content: center;
     background: var(--card-background-color); color: var(--primary-color); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3); }
+  .tiles { bottom: 84px; }
+  .tiles[hidden] { display: none; }
+  .tiles.on { background: var(--primary-color); color: var(--text-primary-color, #fff); }
 
   /* Phone: map above a draggable bottom sheet, bottom tab bar */
   :host(.compact) .layout, :host(.compact) .layout.closed { grid-template-columns: minmax(0, 1fr);
